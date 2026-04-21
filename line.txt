@@ -1,0 +1,1 @@
+                               <span>OVR: {Math.round(calculateTeamOVR(players.filter(p => p.teamId === team.id).sort((a,b)=>b.rating-a.rating).slice(0,5)).overall)}</span>

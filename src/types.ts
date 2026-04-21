@@ -1,0 +1,69 @@
+export type PlayerRating = number; // 0-99
+
+export type EquipmentType = 'JERSEY' | 'SHORTS' | 'SHOES' | 'KNEE_PADS' | 'WRISTBAND' | 'HEADBAND';
+
+export interface Equipment {
+  id: string;
+  type: EquipmentType;
+  name: string;
+  level: 'Basic' | 'Standard' | 'Pro' | 'Elite' | 'Master' | 'Legendary';
+  price: number;
+  bonus: {
+    offense?: number;
+    defense?: number;
+  };
+  icon: string;
+}
+
+export interface Player {
+  id: string;
+  name: string;
+  teamId: string;
+  position: 'PG' | 'SG' | 'SF' | 'PF' | 'C';
+  rating: PlayerRating;
+  offense: number;
+  defense: number;
+  price: number; // Added: Cost to buy
+  stats: {
+    ppg: number;
+    rpg: number;
+    apg: number;
+    spg: number;
+    bpg: number;
+  };
+  color: string;
+  isLegend?: boolean;
+  equipment?: Equipment[];
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  city: string;
+  abbreviation: string;
+  logo: string;
+  color: string;
+  roster: string[]; // All player IDs
+  lineup: string[]; // Added: Starting 5 player IDs
+  budget: number; // Added: Team budget
+  stats: {
+    wins: number;
+    losses: number;
+  };
+}
+
+export interface GameResult {
+  homeTeamId: string;
+  awayTeamId: string;
+  homeScore: number;
+  awayScore: number;
+  quarters: { [key: string]: number }[];
+  date: string;
+}
+
+export interface Season {
+  year: number;
+  standings: { teamId: string; wins: number; losses: number }[];
+  schedule: GameResult[];
+  status: 'Drafting' | 'Regular Season' | 'Playoffs' | 'Offseason';
+}
