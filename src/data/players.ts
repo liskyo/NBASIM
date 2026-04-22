@@ -2,7 +2,42 @@ import { Player } from '../types';
 import { GET_RATING_COLOR, CALCULATE_PLAYER_PRICE } from '../constants';
 import { generateRandomName } from '../lib/names';
 
+// --- 1. ESPN ID 字典對照表 ---
+export const ESPN_PLAYER_IDS: Record<string, string> = {
+  'Jayson Tatum': '4065648', 'Jaylen Brown': '3917376', 'Kristaps Porziņģis': '3102531', 'Kristaps Porzingis': '3102531', 'Jrue Holiday': '3429', 'Derrick White': '3133601', 'Al Horford': '3213', 'Payton Pritchard': '4066354',
+  'LeBron James': '1966', 'Anthony Davis': '6583', 'Austin Reaves': '4396784', "D'Angelo Russell": '3136776', 'Rui Hachimura': '4066648',
+  'Stephen Curry': '3975', 'Draymond Green': '6589', 'Andrew Wiggins': '3059319', 'Jonathan Kuminga': '4433134', 'Buddy Hield': '3938280',
+  'Giannis Antetokounmpo': '3032977', 'Damian Lillard': '6606', 'Khris Middleton': '6609', 'Brook Lopez': '3446',
+  'Kevin Durant': '3202', 'Devin Booker': '3136193', 'Bradley Beal': '6580', 'Jusuf Nurkić': '3102530', 'Grayson Allen': '3135045', 'Tyus Jones': '3136437',
+  'Jimmy Butler': '6430', 'Bam Adebayo': '4066261', 'Tyler Herro': '4396032', 'Terry Rozier': '3074427',
+  'Luka Dončić': '3945274', 'Luka Doncic': '3945274', 'Kyrie Irving': '6442', 'Klay Thompson': '6475', 'Dereck Lively II': '4683015',
+  'Nikola Jokić': '3112335', 'Nikola Jokic': '3112335', 'Jamal Murray': '3908809', 'Aaron Gordon': '3064435', 'Michael Porter Jr.': '4278104', 'Russell Westbrook': '3468',
+  'Shai Gilgeous-Alexander': '4278073', 'Chet Holmgren': '4432239', 'Jalen Williams': '4397193', 'Alex Caruso': '3056600',
+  'Jalen Brunson': '3934672', 'Karl-Anthony Towns': '3136195', 'OG Anunoby': '3934719', 'Mikal Bridges': '3136502',
+  'Anthony Edwards': '4592276', 'Rudy Gobert': '3032976', 'Julius Randle': '3064514', 'Mike Conley': '3210',
+  'Cam Thomas': '4432168', 'Cameron Thomas': '4432168', 'Nic Claxton': '4278067', 'Ben Simmons': '3907387',
+  'Trae Young': '4277905', 'Coby White': '4395651', 'Donovan Mitchell': '3908805', 'Evan Mobley': '4432158',
+  'Ja Morant': '4396869', 'Zion Williamson': '4395628', 'Brandon Ingram': '3913176', 'LaMelo Ball': '4432816',
+  'Alperen Sengun': '4683021', 'Fred VanVleet': '3997128', 'Tyrese Haliburton': '4396993', 'Pascal Siakam': '3149673',
+  'Kawhi Leonard': '6450', 'James Harden': '3992', 'Paolo Banchero': '4432573', 'De\'Aaron Fox': '4066259',
+  'Domantas Sabonis': '3155526', 'Victor Wembanyama': '5104157', 'Scottie Barnes': '4432571', 'Lauri Markkanen': '4066336',
+  'Joel Embiid': '3059318', 'Tyrese Maxey': '4397161', 'Paul George': '4251',
+  // 傳奇球星
+  'Tim Duncan': '215', 'Kevin Garnett': '261', 'Dirk Nowitzki': '609', 'Allen Iverson': '366', 'Dwyane Wade': '1987',
+  'Tracy McGrady': '532', 'Vince Carter': '136', 'Reggie Miller': '552', 'John Stockton': '812',
+  'Karl Malone': '504', 'Scottie Pippen': '660', 'Dennis Rodman': '724', 'Steve Nash': '592', 'Chris Webber': '893',
+  'Patrick Ewing': '239', 'David Robinson': '715', 'Yao Ming': '1701', 'Jeremy Lin': '4299', 'Derrick Rose': '3456',
+  'Dwight Howard': '2384', 'Pau Gasol': '996', 'Manu Ginobili': '272', 'Tony Parker': '1015'
+};
+
+// --- 2. 原始球員資料陣列 ---
 const PLAYER_DATA: Omit<Player, 'price' | 'stamina' | 'endurance'>[] = [
+  // --- 史詩傳奇特別處理 (解決 MJ 不見與破圖問題) ---
+  { id: 'leg-mj-prime', name: 'Michael Jordan (90s)', avatarUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Michael_Jordan_in_2014.jpg/400px-Michael_Jordan_in_2014.jpg', teamId: 'FA', position: 'SG', rating: 99, offense: 99, defense: 99, stats: { ppg: 30.1, rpg: 6.2, apg: 5.3, spg: 2.3, bpg: 0.8 }, color: GET_RATING_COLOR(99), isLegend: true },
+  { id: 'leg-mj-young', name: 'Michael Jordan (80s)', avatarUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Michael_Jordan_in_2014.jpg/400px-Michael_Jordan_in_2014.jpg', teamId: 'FA', position: 'SG', rating: 96, offense: 98, defense: 92, stats: { ppg: 28.2, rpg: 6.5, apg: 5.9, spg: 2.4, bpg: 1.0 }, color: GET_RATING_COLOR(96), isLegend: true },
+  { id: 'leg-kb-prime', name: 'Kobe Bryant (Peak)', avatarUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/5/56/Kobe_Bryant_2014.jpg/400px-Kobe_Bryant_2014.jpg', teamId: 'FA', position: 'SG', rating: 98, offense: 99, defense: 95, stats: { ppg: 25.0, rpg: 5.2, apg: 4.7, spg: 1.4, bpg: 0.5 }, color: GET_RATING_COLOR(98), isLegend: true },
+  { id: 'leg-kareem-peak', name: 'Kareem Abdul-Jabbar (Peak)', avatarUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/d/d4/Kareem_Abdul-Jabbar_1974.jpg/400px-Kareem_Abdul-Jabbar_1974.jpg', teamId: 'FA', position: 'C', rating: 99, offense: 99, defense: 95, stats: { ppg: 24.8, rpg: 10.8, apg: 3.4, spg: 0.8, bpg: 2.6 }, color: GET_RATING_COLOR(99), isLegend: true },
+  { id: 'leg-wilt-peak', name: 'Wilt Chamberlain (Peak)', avatarUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/03/Wilt_Chamberlain_1960.jpg/400px-Wilt_Chamberlain_1960.jpg', teamId: 'FA', position: 'C', rating: 99, offense: 99, defense: 99, stats: { ppg: 50.4, rpg: 25.7, apg: 2.4, spg: 0.0, bpg: 0.0 }, color: GET_RATING_COLOR(99), isLegend: true },
   // --- Boston Celtics ---
   { id: 'bos-1', name: 'Jayson Tatum', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/4065648.png&w=350', teamId: 'bos', position: 'SF', rating: 95, offense: 96, defense: 90, stats: { ppg: 26.9, rpg: 8.1, apg: 4.9, spg: 1.0, bpg: 0.6 }, color: GET_RATING_COLOR(95) },
   { id: 'bos-2', name: 'Jaylen Brown', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/3917376.png&w=350', teamId: 'bos', position: 'SG', rating: 92, offense: 93, defense: 91, stats: { ppg: 23.0, rpg: 5.5, apg: 3.6, spg: 1.2, bpg: 0.5 }, color: GET_RATING_COLOR(92) },
@@ -602,37 +637,13 @@ const PLAYER_DATA: Omit<Player, 'price' | 'stamina' | 'endurance'>[] = [
   { id: 'leg-bird-1', name: 'Larry Bird', teamId: 'FA', position: 'SF', rating: 98, offense: 99, defense: 92, stats: { ppg: 24.3, rpg: 10.0, apg: 6.3, spg: 1.7, bpg: 0.8 }, color: GET_RATING_COLOR(98), isLegend: true },
   { id: 'leg-mj-1', name: 'Michael Jordan', teamId: 'FA', position: 'SG', rating: 99, offense: 99, defense: 99, stats: { ppg: 30.1, rpg: 6.2, apg: 5.3, spg: 2.3, bpg: 0.8 }, color: GET_RATING_COLOR(99), isLegend: true },
 
-  // --- 600+ Named Professional Players & Legends ---
+// --- 1500 名隨機球員生成 ---
   ...Array.from({ length: 1500 }).map((_, i) => {
     const pos: any[] = ['PG', 'SG', 'SF', 'PF', 'C'];
     const p: any = pos[i % 5];
+    const HISTORICAL_NAMES = ["Michael Jordan", "Kobe Bryant", "LeBron James", "Shaquille O'Neal", "Magic Johnson", "Larry Bird", "Tim Duncan", "Kevin Garnett", "Dirk Nowitzki", "Allen Iverson"];
+    const VARIATIONS = ["'96", "'84", "Prime", "Peak", "MVP"];
     
-    // Historical Names pool for realism
-    const HISTORICAL_NAMES = [
-      "Michael Jordan", "Kobe Bryant", "LeBron James", "Shaquille O'Neal", "Magic Johnson", "Larry Bird", 
-      "Tim Duncan", "Kevin Garnett", "Dirk Nowitzki", "Allen Iverson", "Tracy McGrady", "Vince Carter", 
-      "Paul Pierce", "Ray Allen", "Dwyane Wade", "Chris Bosh", "Jason Kidd", "Steve Nash", "Gary Payton", 
-      "Karl Malone", "John Stockton", "Hakeem Olajuwon", "David Robinson", "Charles Barkley", "Patrick Ewing", 
-      "Scottie Pippen", "Reggie Miller", "Clyde Drexler", "Dominique Wilkins", "Julius Erving", "Kareem Abdul-Jabbar", 
-      "Wilt Chamberlain", "Bill Russell", "Oscar Robertson", "Jerry West", "Elgin Baylor", "Isiah Thomas", 
-      "Joe Dumars", "James Worthy", "Dennis Rodman", "Manu Ginobili", "Tony Parker", "Pau Gasol", "Yao Ming", 
-      "Chris Webber", "Grant Hill", "Penny Hardaway", "Alonzo Mourning", "Dikembe Mutombo", "Ben Wallace", 
-      "Dwight Howard", "Carmelo Anthony", "Chris Paul", "Kevin Durant", "Stephen Curry", "James Harden", 
-      "Russell Westbrook", "Kawhi Leonard", "Giannis Antetokounmpo", "Nikola Jokic", "Luka Doncic", "Joel Embiid", 
-      "Anthony Davis", "Kyrie Irving", "Damian Lillard", "Paul George", "Jimmy Butler", "Klay Thompson", "Draymond Green",
-      "Chris Mullin", "Mitch Richmond", "Tim Hardaway", "Shawn Kemp", "Gary Payton", "Detlef Schrempf", "Glen Rice",
-      "Eddie Jones", "Nick Van Exel", "Robert Horry", "Steve Kerr", "Toni Kukoc", "Ron Harper", "Luc Longley",
-      "Mark Price", "Brad Daugherty", "Larry Nance", "Kevin Johnson", "Dan Majerle", "Tom Chambers", "Kevin McHale",
-      "Robert Parish", "Dennis Johnson", "Danny Ainge", "James Silas", "George Gervin", "David Thompson", "Bob McAdoo",
-      "Rick Barry", "Walt Frazier", "Earl Monroe", "Willis Reed", "Dave DeBusschere", "Bill Bradley", "Tiny Archibald",
-      "Dave Cowens", "Jo Jo White", "Bob Cousy", "George Mikan", "Bob Pettit", "Dolph Schayes", "Paul Arizin"
-    ];
-
-    const VARIATIONS = ["'96", "'84", "'03", "'12", "'16", "'92", "'08", "Prime", "Rookie", "Peak", "MVP", "All-Star", "Dynasty"];
-    
-    // Logic: 
-    // First 500 are mostly standard random names
-    // Remaining are Historical Variations
     let finalName = "";
     if (i < 500) {
       finalName = generateRandomName();
@@ -642,9 +653,7 @@ const PLAYER_DATA: Omit<Player, 'price' | 'stamina' | 'endurance'>[] = [
       finalName = `${base} (${ver})`;
     }
 
-    const rating = 65 + Math.floor(Math.random() * 30); // 65-95 range
-    const isLegend = rating >= 95;
-    
+    const rating = 65 + Math.floor(Math.random() * 30);
     return {
       id: `real-player-${i}`,
       name: finalName,
@@ -655,14 +664,38 @@ const PLAYER_DATA: Omit<Player, 'price' | 'stamina' | 'endurance'>[] = [
       defense: rating + (Math.random() * 4 - 2),
       stats: { ppg: 5.0 + Math.random() * 20, rpg: 2 + Math.random() * 10, apg: 2 + Math.random() * 10, spg: 0.5, bpg: 0.5 },
       color: GET_RATING_COLOR(rating),
-      isLegend: isLegend
+      isLegend: rating >= 95
     };
   })
 ];
 
-export const INITIAL_PLAYERS: Player[] = PLAYER_DATA.map(p => ({
-  ...p,
-  stamina: 100,
-  endurance: 0.8 + Math.random() * 0.4, // Random endurance between 0.8 and 1.2
-  price: CALCULATE_PLAYER_PRICE(p.rating)
-})) as Player[];
+// --- 3. 初始化組裝邏輯 (包含保護機制) ---
+export const INITIAL_PLAYERS: Player[] = PLAYER_DATA.map(p => {
+  // 過濾括號以匹配字典
+  const baseName = p.name.replace(/\s*\(.*?\)\s*/g, '').trim();
+  const espnId = ESPN_PLAYER_IDS[baseName];
+
+  const generatedAvatarUrl = espnId 
+    ? `https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/${espnId}.png&w=350`
+    : '/assets/default-avatar.png';
+
+  const playerObj = {
+    ...p,
+    avatarUrl: p.avatarUrl || generatedAvatarUrl, 
+    stamina: 100,
+    endurance: 0.8 + Math.random() * 0.4,
+    price: CALCULATE_PLAYER_PRICE(p.rating)
+  } as Player;
+
+  // 🛡️ 史詩級數值鎖定保護機制
+  // 針對手動定義的傳奇球星 (ID 以 leg- 開頭且 isLegend 為 true)，鎖定其數值不可寫入
+  if (playerObj.isLegend && playerObj.id.startsWith('leg-')) {
+    Object.defineProperties(playerObj, {
+      rating: { value: playerObj.rating, writable: false, configurable: false },
+      offense: { value: playerObj.offense, writable: false, configurable: false },
+      defense: { value: playerObj.defense, writable: false, configurable: false }
+    });
+  }
+
+  return playerObj;
+});
