@@ -14,6 +14,7 @@ import { INITIAL_PLAYERS } from "./data/players";
 import { Team, Player, GameResult, Equipment } from "./types";
 import { PlayerCard } from "./components/PlayerCard";
 import { simulateGame, calculateTeamOVR } from "./lib/simulation";
+import { generateRandomName } from "./lib/names";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Trophy,
@@ -55,6 +56,11 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "roster" | "league" | "stats" | "market" | "library"
   >("dashboard");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [collectedPlayerIds, setCollectedPlayerIds] = useState<string[]>(() => {
+    const saved = localStorage.getItem("nba-gm-collected");
+    return saved ? JSON.parse(saved) : [];
+  });
   const [marketSubTab, setMarketSubTab] = useState<"players" | "gear">(
     "players",
   );
@@ -62,22 +68,68 @@ export default function App() {
     string | null
   >(null);
   const [isSimulating, setIsSimulating] = useState(false);
-  const [currentWeek, setCurrentWeek] = useState(1);
-  const [isPlayoffs, setIsPlayoffs] = useState(false);
-  const [activePlayoffGame, setActivePlayoffGame] = useState<any | null>(null);
+  const [currentWeek, setCurrentWeek] = useState(() => {
+    return Number(localStorage.getItem("nba-gm-current-week") || 1);
+  });
+  const [isPlayoffs, setIsPlayoffs] = useState(() => {
+    return localStorage.getItem("nba-gm-is-playoffs") === "true";
+  });
+  const [playoffBracket, setPlayoffBracket] = useState<any[]>(() => {
+    const saved = localStorage.getItem("nba-gm-po-bracket");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [playoffRound, setPlayoffRound] = useState(() => {
+    return Number(localStorage.getItem("nba-gm-po-round") || 0);
+  });
+  const [activePlayoffGame, setActivePlayoffGame] = useState<any | null>(() => {
+    const saved = localStorage.getItem("nba-gm-po-active");
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [showPlayoffRoster, setShowPlayoffRoster] = useState(false);
   const [isGeneratingNews, setIsGeneratingNews] = useState(false);
-  const [playoffQuarter, setPlayoffQuarter] = useState(1);
+
+  useEffect(() => {
+    localStorage.setItem("nba-gm-collected", JSON.stringify(collectedPlayerIds));
+  }, [collectedPlayerIds]);
+
+  // Update collected players whenever roster changes
+  useEffect(() => {
+    const rosterIds = players.filter(p => p.teamId === userTeamId).map(p => p.id);
+    setCollectedPlayerIds(prev => {
+      const newIds = rosterIds.filter(id => !prev.includes(id));
+      if (newIds.length > 0) return [...prev, ...newIds];
+      return prev;
+    });
+  }, [players, userTeamId]);
+
+  const [playoffQuarter, setPlayoffQuarter] = useState(() => {
+    return Number(localStorage.getItem("nba-gm-po-q") || 1);
+  });
   const [isQuarterSimulating, setIsQuarterSimulating] = useState(false);
-  const [playoffGameStatus, setPlayoffGameStatus] = useState<'playing' | 'halftime' | 'finished' | 'idle'>('idle');
-  const [playoffGameScores, setPlayoffGameScores] = useState({ home: 0, away: 0 });
+  const [playoffGameStatus, setPlayoffGameStatus] = useState<'playing' | 'halftime' | 'finished' | 'idle'>(() => {
+    return (localStorage.getItem("nba-gm-po-status") as any) || 'idle';
+  });
+  const [playoffGameScores, setPlayoffGameScores] = useState(() => {
+    const saved = localStorage.getItem("nba-gm-po-scores");
+    return saved ? JSON.parse(saved) : { home: 0, away: 0 };
+  });
 
   const [releaseConfirmId, setReleaseConfirmId] = useState<string | null>(null);
 
   const startPlayoffGame = (match: any) => {
-    setActivePlayoffGame(match);
+    // Resume detection
+    if (activePlayoffGame && activePlayoffGame.home.id === match.home.id && activePlayoffGame.away.id === match.away.id && playoffGameStatus !== 'finished') {
+       // Already in progress, just open the modal (handled by state)
+       return; 
+    }
+    // Sync with latest team data
+    const latestHome = teams.find(t => t.id === match.home.id) || match.home;
+    const latestAway = teams.find(t => t.id === match.away.id) || match.away;
+    setActivePlayoffGame({ home: latestHome, away: latestAway });
     setPlayoffQuarter(1);
     setPlayoffGameScores({ home: 0, away: 0 });
     setPlayoffGameStatus('playing');
+    setShowPlayoffRoster(false);
   };
 
   const generateLeagueContext = () => {
@@ -113,29 +165,100 @@ export default function App() {
     };
   };
 
-  const autoGenerateNews = async () => {
-    setIsGeneratingNews(true);
-    try {
-      const ctx = generateLeagueContext();
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `你是一位資深的 NBA 球評，語氣專業且富有感染力。請針對目前的聯盟形勢寫一段簡短的繁體中文新聞報導（約 60-80 字）。
-        
-        聯盟現狀：
-        1. 龍頭球隊：${ctx.leader}
-        2. 聯盟第一人：${ctx.topPlayer}
-        3. 使用者球隊（${ctx.userTeamName}）目前排名：第 ${ctx.userStanding} 名
-        4. 最近三場戰報：${ctx.recentGames || "賽季初暫無戰報"}
-        
-        請巧妙地融合這些資訊，並給出一句對未來的預測或評論。`,
-      });
-      setNews(response.text || "昨日戰況激烈，各隊表現出色。");
-    } catch (error) {
-      console.error("Failed to generate news:", error);
-      setNews("聯盟辦公室目前通訊遺失，請稍後再試。");
-    } finally {
-      setIsGeneratingNews(false);
+  const startPlayoffTournament = (sortedTeams: Team[]) => {
+    // Top 8 teams enter playoffs
+    const top8 = sortedTeams.slice(0, 8);
+    // Round 1 Matchups (NBA Style 1-8, 4-5, 2-7, 3-6)
+    const matchups = [
+      { home: top8[0], away: top8[7], winner: null, scores: { home: 0, away: 0 } }, // 1 v 8
+      { home: top8[3], away: top8[4], winner: null, scores: { home: 0, away: 0 } }, // 4 v 5
+      { home: top8[1], away: top8[6], winner: null, scores: { home: 0, away: 0 } }, // 2 v 7
+      { home: top8[2], away: top8[5], winner: null, scores: { home: 0, away: 0 } }, // 3 v 6
+    ];
+    setPlayoffBracket(matchups);
+    setPlayoffRound(1);
+    setIsPlayoffs(true);
+    setNews("🎉 例行賽正式結束！季後賽對陣圖已生成，強強對決即刻開打！");
+  };
+
+  const getNextPlayoffMatch = () => {
+    if (!isPlayoffs || playoffBracket.length === 0) return null;
+    // Find first unfinished match
+    return playoffBracket.find(m => !m.winner);
+  };
+
+  const finalizePlayoffGame = (matchIndex: number, homeWin: boolean, hScore: number, aScore: number) => {
+    const newBracket = [...playoffBracket];
+    const match = newBracket[matchIndex];
+    match.winner = homeWin ? match.home : match.away;
+    match.scores = { home: hScore, away: aScore };
+    
+    setPlayoffBracket(newBracket);
+    
+    // Check if round is finished
+    const finished = newBracket.every(m => m.winner);
+    if (finished) {
+       if (playoffRound === 3) {
+          setNews(`🏁 傳奇誕生！${match.winner.name} 奪得 2026 NBA 總冠軍！`);
+       } else {
+          setNews(`第 ${playoffRound} 輪結束！準備進入下一階段...`);
+       }
     }
+  };
+
+  const proceedToNextPlayoffRound = () => {
+    const winners = playoffBracket.map(m => m.winner);
+    if (playoffRound === 1) {
+       // Semis: Winner of (1v8) vs Winner of (4v5) | Winner of (2v7) vs Winner of (3v6)
+       const nextMatchups = [
+         { home: winners[0], away: winners[1], winner: null, scores: { home: 0, away: 0 } },
+         { home: winners[2], away: winners[3], winner: null, scores: { home: 0, away: 0 } }
+       ];
+       setPlayoffBracket(nextMatchups);
+       setPlayoffRound(2);
+    } else if (playoffRound === 2) {
+       // Finals
+       const nextMatchups = [
+         { home: winners[0], away: winners[1], winner: null, scores: { home: 0, away: 0 } }
+       ];
+       setPlayoffBracket(nextMatchups);
+       setPlayoffRound(3);
+    } else {
+       // End of post-season
+       setNews("賽季圓滿結束，您可以重設數據開啟新賽季，或繼續留在球員百科研究！");
+    }
+  };
+
+  const autoGenerateNews = () => {
+    setIsGeneratingNews(true);
+    const ctx = generateLeagueContext();
+    
+    // Find legendary or major signings
+    const legendsOnTeams = players.filter(p => p.isLegend && p.teamId !== 'FA');
+    const recentLegend = legendsOnTeams.length > 0 
+      ? legendsOnTeams[Math.floor(Math.random() * legendsOnTeams.length)] 
+      : null;
+
+    const newsList = [
+      `【聯盟頭條】${ctx.leader} 展現無人能敵的統治力，目前橫掃聯盟穩坐榜首！`,
+      `【MVP 觀察】球評指出：${ctx.topPlayer} 以其全能數據，目前是 MVP 的頭號候選人。`,
+      `【球隊快訊】${ctx.userTeamName} 目前戰績排名第 ${ctx.userStanding}，總經理正積極調整陣容拚搶每一勝利。`,
+      `【賽事分析】例行賽已進入白熱化階段，${ctx.leader} 的連勝勢頭引起聯盟各方關注。`
+    ];
+
+    if (recentLegend) {
+      const ownerTeam = teams.find(t => t.id === recentLegend.teamId);
+      newsList.push(`【震撼交易】傳奇球星 ${recentLegend.name} 已正式加盟 ${ownerTeam?.city}${ownerTeam?.name}！聯盟實力版圖面臨大洗牌！`);
+    }
+
+    if (ctx.recentGames) {
+      const g = ctx.recentGames.split(',')[0];
+      newsList.push(`【焦點戰報】昨日 ${g} 之戰打得火熱，頂級對決讓全場球迷驚呼連連！`);
+    }
+
+    const selectedNews = newsList[Math.floor(Math.random() * newsList.length)];
+    setNews(selectedNews);
+    setIsGeneratingNews(false);
   };
   const [activeGames, setActiveGames] = useState<GameResult[] | null>(null);
   const [news, setNews] = useState<string>(
@@ -154,58 +277,130 @@ export default function App() {
   );
   const [currentTime, setCurrentTime] = useState(Date.now());
 
+  // Playoff season transition effect
+  useEffect(() => {
+    if (currentWeek > REGULAR_SEASON_GAMES && !isPlayoffs && teams.length > 0) {
+      const sorted = [...teams].sort((a,b) => {
+        const winA = a.stats.wins / (a.stats.wins + a.stats.losses || 1);
+        const winB = b.stats.wins / (b.stats.wins + b.stats.losses || 1);
+        return winB - winA;
+      });
+      startPlayoffTournament(sorted);
+    }
+  }, [currentWeek, isPlayoffs, teams]);
+
   // Initialize data
   useEffect(() => {
     const savedTeams = localStorage.getItem("nba-gm-teams");
-    if (savedTeams) {
-      setTeams(JSON.parse(savedTeams));
-    } else {
-      // Map players to teams initially
-      
-    // Pre-initialization: Fill gaps for teams with < 5 players
-    let currentPlayers = [...players];
-    NBA_TEAMS.forEach(team => {
-      const teamPlayersCount = currentPlayers.filter(p => p.teamId === team.id).length;
-      if (teamPlayersCount < 5) {
-        // Find unaffiliated players or create generic ones
-        const needed = 5 - teamPlayersCount;
-        for (let i = 0; i < needed; i++) {
-           const newP = {
-             id: "gen-" + team.id + "-" + i,
-             name: team.city + " Rookie " + (i+1),
-             rating: 65 + Math.floor(Math.random() * 10),
-             teamId: team.id,
-             avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=" + team.id + i,
-             position: "G",
-             stats: { points: 0, rebounds: 0, assists: 0, games: 0 }
-           };
-           currentPlayers.push(newP);
-        }
-      }
-    });
-    if (currentPlayers.length > players.length) {
-      setPlayers(currentPlayers);
-    }
+    const savedPlayers = localStorage.getItem("nba-gm-players");
+    
+    let currentTeams: Team[] = [];
+    let currentPlayers: Player[] = [];
 
-const initialTeams = NBA_TEAMS.map((team) => {
-        const teamPlayers = INITIAL_PLAYERS.filter(
+    if (savedTeams && savedPlayers) {
+      currentTeams = JSON.parse(savedTeams);
+      let loadedPlayers: Player[] = JSON.parse(savedPlayers);
+      
+      // Deduplicate logic: Fix cases where duplicate IDs might have entered the save
+      const uniqueLoadedPlayers: Player[] = [];
+      const seenIdsForDedupe = new Set();
+      loadedPlayers.forEach(p => {
+        if (!seenIdsForDedupe.has(p.id)) {
+          // Anti-Fake Name: Rename existing "Reserve" players from old saves
+          if (p.name.startsWith("Reserve ")) {
+             const HISTORICAL_FOR_CLEANUP = ["Larry Bird", "Magic Johnson", "Kobe Bryant", "LeBron James", "Shaq", "MJ", "Tim Duncan", "Kevin Garnett", "Dirk", "AI"];
+             const base = HISTORICAL_FOR_CLEANUP[Math.floor(Math.random() * HISTORICAL_FOR_CLEANUP.length)];
+             p.name = `${base} (Legacy)`;
+          }
+          uniqueLoadedPlayers.push(p);
+          seenIdsForDedupe.add(p.id);
+        }
+      });
+      loadedPlayers = uniqueLoadedPlayers;
+
+      // Feature: Merge new players from INITIAL_PLAYERS that are not in the save
+      const currentIds = new Set(loadedPlayers.map(p => p.id));
+      const missingPlayers = INITIAL_PLAYERS.filter(p => !currentIds.has(p.id));
+      if (missingPlayers.length > 0) {
+        currentPlayers = [...loadedPlayers, ...missingPlayers.map(p => ({ ...p, teamId: 'FA' }))];
+      } else {
+        currentPlayers = loadedPlayers;
+      }
+      
+      // Validation & Self-Healing: Check if any team has < 8 players
+      let playersModified = missingPlayers.length > 0;
+      let teamsModified = false;
+
+      currentTeams.forEach(team => {
+        const teamPlayers = currentPlayers.filter(p => p.teamId === team.id);
+        if (teamPlayers.length < 8) {
+          const needed = 8 - teamPlayers.length;
+          // Find FAs to fill the gap
+          const faPool = currentPlayers.filter(p => p.teamId === 'FA');
+          const fillers = faPool.sort(() => 0.5 - Math.random()).slice(0, needed);
+          
+          fillers.forEach(p => {
+             const idx = currentPlayers.findIndex(cp => cp.id === p.id);
+             if (idx !== -1) {
+               const rating = 85 + Math.floor(Math.random() * 6);
+               currentPlayers[idx] = { ...currentPlayers[idx], teamId: team.id, rating, offense: rating + 1, defense: rating - 1 };
+               playersModified = true;
+             }
+          });
+          
+          // Update team roster
+          const updatedTeamPlayers = currentPlayers.filter(p => p.teamId === team.id).map(p => p.id);
+          team.roster = updatedTeamPlayers;
+          team.lineup = updatedTeamPlayers.slice(0, 5);
+          teamsModified = true;
+        }
+      });
+
+      setPlayers(currentPlayers);
+      setTeams(currentTeams);
+    } else {
+      // New Game Initialiation
+      currentPlayers = INITIAL_PLAYERS.map(p => ({ ...p, teamId: 'FA' }));
+      
+      NBA_TEAMS.forEach(team => {
+        const pool = currentPlayers.filter(p => p.teamId === 'FA');
+        const candidates = pool.sort(() => 0.5 - Math.random()).slice(0, 8);
+        
+        candidates.forEach(p => {
+          const rating = 85 + Math.floor(Math.random() * 6); // 85-90 as requested
+          const idx = currentPlayers.findIndex(cp => cp.id === p.id);
+          if (idx !== -1) {
+             currentPlayers[idx] = {
+               ...currentPlayers[idx],
+               teamId: team.id,
+               rating: rating,
+               offense: rating + 1,
+               defense: rating - 1,
+               price: 500000 + (rating - 60) * 100000,
+             };
+          }
+        });
+      });
+
+      setPlayers(currentPlayers);
+
+      currentTeams = NBA_TEAMS.map((team) => {
+        const teamPlayerIds = currentPlayers.filter(
           (p) => p.teamId === team.id,
         ).map((p) => p.id);
         return {
           ...team,
-          roster: teamPlayers,
-          lineup: teamPlayers.slice(0, 5), // Take first 5 as starters
+          roster: teamPlayerIds,
+          lineup: teamPlayerIds.slice(0, 5),
           budget: INITIAL_BUDGET,
+          stats: { wins: 0, losses: 0 }
         };
       });
-      setTeams(initialTeams);
+      setTeams(currentTeams);
     }
 
     const savedGames = localStorage.getItem("nba-gm-games");
     if (savedGames) setGames(JSON.parse(savedGames));
-
-    const savedPlayers = localStorage.getItem("nba-gm-players");
-    if (savedPlayers) setPlayers(JSON.parse(savedPlayers));
 
     // Initial news generation
     autoGenerateNews();
@@ -226,7 +421,17 @@ const initialTeams = NBA_TEAMS.map((team) => {
     if (userTeamId) localStorage.setItem("nba-gm-team", userTeamId);
     localStorage.setItem("nba-gm-last-explore", lastExploreTime.toString());
     localStorage.setItem("nba-gm-explore-pool", JSON.stringify(explorePool));
-  }, [teams, games, players, userTeamId, lastExploreTime, explorePool]);
+    
+    // Playoff states
+    localStorage.setItem("nba-gm-current-week", currentWeek.toString());
+    localStorage.setItem("nba-gm-is-playoffs", isPlayoffs.toString());
+    localStorage.setItem("nba-gm-po-bracket", JSON.stringify(playoffBracket));
+    localStorage.setItem("nba-gm-po-round", playoffRound.toString());
+    localStorage.setItem("nba-gm-po-active", JSON.stringify(activePlayoffGame));
+    localStorage.setItem("nba-gm-po-q", playoffQuarter.toString());
+    localStorage.setItem("nba-gm-po-scores", JSON.stringify(playoffGameScores));
+    localStorage.setItem("nba-gm-po-status", playoffGameStatus);
+  }, [teams, games, players, userTeamId, lastExploreTime, explorePool, currentWeek, isPlayoffs, playoffBracket, playoffRound, activePlayoffGame, playoffQuarter, playoffGameScores, playoffGameStatus]);
 
   const userTeam = teams.find((t) => t.id === userTeamId);
   const userRoster = players.filter((p) => p.teamId === userTeamId);
@@ -302,28 +507,19 @@ const initialTeams = NBA_TEAMS.map((team) => {
       const rating = Math.floor(Math.random() * 11) + 85;
       const positions: Player["position"][] = ["PG", "SG", "SF", "PF", "C"];
       const pos = positions[Math.floor(Math.random() * positions.length)];
-      const names = [
-        "Alpha",
-        "Beta",
-        "Gamma",
-        "Delta",
-        "Epsilon",
-        "Zeta",
-        "Eta",
-        "Theta",
-        "Iota",
-        "Kappa",
-      ];
+      
       return {
         id: `draft-${Date.now()}-${idx}`,
-        name: `新秀 ${names[idx]}`,
+        name: generateRandomName(),
         teamId: tid,
         position: pos,
         rating: rating,
         offense: rating + 2,
         defense: rating - 2,
         price: 0, // Free draft pick
-        stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0 },
+        stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, games: 0 },
+        stamina: 100,
+        endurance: 0.8 + Math.random() * 0.4,
         color: GET_RATING_COLOR(rating),
         equipment: [],
       };
@@ -383,30 +579,53 @@ const initialTeams = NBA_TEAMS.map((team) => {
     const aQ = getQPoints(awayOVR);
     
     // Animation
+    const startH = playoffGameScores.home;
+    const startA = playoffGameScores.away;
     for (let i = 1; i <= 10; i++) {
-       setPlayoffGameScores(prev => ({
-         home: prev.home + Math.round(hQ/10),
-         away: prev.away + Math.round(aQ/10)
-       }));
-       await new Promise(r => setTimeout(r, 100));
+       setPlayoffGameScores({
+         home: startH + Math.round((hQ / 10) * i),
+         away: startA + Math.round((aQ / 10) * i)
+       });
+       await new Promise(r => setTimeout(r, 80));
     }
     
     setPlayoffQuarter(prev => prev + 1);
     if (playoffQuarter >= 4) {
       setPlayoffGameStatus('finished');
+      // Update bracket winner
+      const mIdx = playoffBracket.findIndex(m => m.home.id === activePlayoffGame.home.id && m.away.id === activePlayoffGame.away.id);
+      if (mIdx !== -1) {
+         finalizePlayoffGame(mIdx, playoffGameScores.home > playoffGameScores.away, playoffGameScores.home, playoffGameScores.away);
+      }
     } else {
       setPlayoffGameStatus('halftime');
+      // Update activePlayoffGame and teams state before next quarter if needed
+      // But the simulation uses current players filtered by team lineup
     }
+
+    // Stamina decay after quarter (Manual rotation assumes starters 8m, bench 4m)
+    setPlayers(prev => prev.map(p => {
+      const isHome = p.teamId === activePlayoffGame.home.id;
+      const isAway = p.teamId === activePlayoffGame.away.id;
+      if (!isHome && !isAway) return p;
+      
+      const lineup = isHome ? activePlayoffGame.home.lineup : activePlayoffGame.away.lineup;
+      const isStarter = lineup?.includes(p.id);
+      const mins = isStarter ? 8 : 4;
+      const decay = mins * 0.5 * (p.endurance || 1);
+      return { ...p, stamina: Math.max(0, p.stamina - decay) };
+    }));
+
     setIsQuarterSimulating(false);
   };
 
   const simulateWeek = async () => {
     if (isSimulating || isPlayoffs) return;
 
-    // Check if ALL teams have at least 5 players in their roster
-    const underweightTeams = teams.filter(t => players.filter(p => p.teamId === t.id).length < 5);
+    // Check if ALL teams have at least 8 players in their roster
+    const underweightTeams = teams.filter(t => players.filter(p => p.teamId === t.id).length < 8);
     if (underweightTeams.length > 0) {
-      setNews("🚨 無法開賽：聯盟中有 " + underweightTeams.length + " 支球隊球員數不足 5 人 (" + underweightTeams.map(t => t.name).join(", ") + ")。");
+      setNews("🚨 無法開賽：聯盟中有 " + underweightTeams.length + " 支球隊球員數不足 8 人 (" + underweightTeams.map(t => t.name).join(", ") + ")。");
       return;
     }
 
@@ -415,63 +634,31 @@ const initialTeams = NBA_TEAMS.map((team) => {
       setActiveTab("roster");
       return;
     }
-    if (isSimulating) return;
-
-    // Protection: User must have 5 starters
-    if (userStarters.length < 5) {
-      setNews(
-        "🚨 無法開賽：請先進入「球員名單」手動勾選 5 位先發球員！當前先發人數：" +
-          userStarters.length,
-      );
-      setActiveTab("roster");
-      return;
-    }
 
     setIsSimulating(true);
     setNews("各球場開賽中，正在即時模擬本週戰報...");
 
     try {
-      // Pick pairs of teams to play
+      // Pick pairs of teams to play - Shuffle teams to ensure variety in matchups
       const finalResults: GameResult[] = [];
-      const updatedTeams = [...teams];
-
+      const shuffledTeamsForMatchup = [...teams].sort(() => 0.5 - Math.random());
+      
+      const allPlayerUpdates: { id: string, staminaChange: number }[] = [];
       const gamePairs: { home: Team; away: Team; result: GameResult }[] = [];
 
       // 1. Pre-calculate all final results
-      for (let i = 0; i < updatedTeams.length; i += 2) {
-        if (i + 1 >= updatedTeams.length) break;
-        const home = updatedTeams[i];
-        const away = updatedTeams[i + 1];
-        const homeStarters = players.filter((p) =>
-          (home.lineup || []).includes(p.id),
-        );
-        const awayStarters = players.filter((p) =>
-          (away.lineup || []).includes(p.id),
-        );
+      for (let i = 0; i < shuffledTeamsForMatchup.length; i += 2) {
+        if (i + 1 >= shuffledTeamsForMatchup.length) break;
+        const home = shuffledTeamsForMatchup[i];
+        const away = shuffledTeamsForMatchup[i + 1];
+        
+        const homeRoster = players.filter(p => p.teamId === home.id);
+        const awayRoster = players.filter(p => p.teamId === away.id);
 
-        // Logical fix: If a team doesn't have 5 starters (common for CPU),
-        // use their top 5 highest rated players instead of the entire roster.
-        // This ensures the OVR is represented by their best talent, not diluted by bench.
-        const getBestPool = (team: Team, starters: Player[]) => {
-          if (starters.length >= 5) return starters;
-          const allTeamPlayers = players.filter((p) => p.teamId === team.id);
-
-          // Sort by effective rating (base + gear) to pick the REAL best 5
-          const withEffective = allTeamPlayers.map((p) => {
-            let bonus = 0;
-            (p.equipment || []).forEach(
-              (e) => (bonus += (e.bonus.offense || 0) + (e.bonus.defense || 0)),
-            );
-            return { ...p, eff: p.rating + bonus / 2 };
-          });
-
-          return withEffective.sort((a, b) => b.eff - a.eff).slice(0, 5);
-        };
-
-        const homePool = getBestPool(home, homeStarters);
-        const awayPool = getBestPool(away, awayStarters);
-
-        const result = simulateGame(home, homePool, away, awayPool);
+        const result = simulateGame(home, homeRoster, away, awayRoster, true);
+        if (result.playerUpdates) {
+          allPlayerUpdates.push(...result.playerUpdates);
+        }
         gamePairs.push({ home, away, result });
       }
 
@@ -554,14 +741,84 @@ const initialTeams = NBA_TEAMS.map((team) => {
       });
 
       setGames((prev) => [...finalResults, ...prev].slice(0, 50));
+
+      // 4. Apply stamina updates and AI Team Management
+      setPlayers((prevPlayers) => {
+        const updateMap = new Map(allPlayerUpdates.map(u => [u.id, u.staminaChange]));
+        let newPlayers = prevPlayers.map(p => {
+          const change = updateMap.get(p.id) || 0;
+          const recovery = 20; 
+          const playedGame = allPlayerUpdates.some(u => u.id === p.id);
+          const finalRecovery = playedGame ? recovery : recovery + 10;
+
+          return {
+            ...p,
+            stamina: Math.min(100, Math.max(0, p.stamina + change + finalRecovery))
+          };
+        });
+
+        // AI AI Team Logic: Self-Sign if weak (< 85 team avg) and have budget
+        setTeams(currentTeams => {
+          return currentTeams.map(t => {
+            if (t.id === userTeamId) return t;
+            
+            let updatedTeam = { ...t };
+            const teamRoster = newPlayers.filter(p => p.teamId === t.id);
+            const teamAvg = teamRoster.reduce((sum, p) => sum + p.rating, 0) / (teamRoster.length || 1);
+
+            // AI Rotation: If starter tired, swap with fresh reserve
+            let newLineup = [...(t.lineup || [])];
+            // Filter to make sure we only reference players currently on this team
+            const teamRosterIds = new Set(teamRoster.map(p => p.id));
+            newLineup = newLineup.filter(id => teamRosterIds.has(id));
+
+            const starters = teamRoster.filter(p => newLineup.includes(p.id));
+            const reserves = teamRoster.filter(p => !newLineup.includes(p.id));
+            
+            starters.forEach(star => {
+              if (star.stamina < 45) { // Threshold for swap
+                const freshReserve = reserves.sort((a,b) => b.stamina - a.stamina)[0];
+                if (freshReserve && freshReserve.stamina > 75) {
+                  // Swap
+                  newLineup = newLineup.map(id => id === star.id ? freshReserve.id : id);
+                }
+              }
+            });
+
+            // Ensure lineup is valid
+            if (newLineup.length < 5 && teamRoster.length >= 5) {
+                const missingCount = 5 - newLineup.length;
+                const poolForFill = teamRoster.filter(p => !newLineup.includes(p.id));
+                const fills = poolForFill.sort((a,b) => b.rating - a.rating).slice(0, missingCount).map(p => p.id);
+                newLineup = [...newLineup, ...fills];
+            }
+            updatedTeam.lineup = newLineup;
+
+            // AI Recruitment: Occasional talent search for weak teams
+            if (teamAvg < 88 && t.budget > 10000000 && Math.random() > 0.7) {
+              const faPool = newPlayers.filter(p => p.teamId === 'FA' && p.rating > teamAvg + 5);
+              const target = faPool.sort((a,b) => b.rating - a.rating)[0];
+              if (target && t.budget >= target.price) {
+                // Perform sign
+                updatedTeam.budget -= target.price;
+                updatedTeam.roster = [...updatedTeam.roster, target.id];
+                newPlayers = newPlayers.map(p => p.id === target.id ? { ...p, teamId: t.id } : p);
+                console.log(`[AI] ${t.name} signed ${target.name}`);
+              }
+            }
+            return updatedTeam;
+          });
+        });
+
+        return newPlayers;
+      });
+
       setActiveGames(null);
       setIsSimulating(false);
       const nextWeek = currentWeek + 1;
       setCurrentWeek(nextWeek);
-      if (nextWeek > 30) {
-        setIsPlayoffs(true);
-        setNews("🏀 例行賽結束！季後賽正式開打！正在生成對陣圖...");
-      } // UI stops spinning here
+      // Removed startPlayoffTournament from here to avoid async state issues
+      // It will be handled by useEffect instead
 
       // Automatic News Generation
       autoGenerateNews();
@@ -584,9 +841,9 @@ const initialTeams = NBA_TEAMS.map((team) => {
   const handleExplore = () => {
     if (currentTime - lastExploreTime < EXPLORE_COOLDOWN_MS) return;
 
-    // Pick 3 random players not on user team from other teams
-    const otherPlayers = players.filter((p) => p.teamId !== userTeamId);
-    const shuffled = [...otherPlayers].sort(() => 0.5 - Math.random());
+    // Pick 3 random free agent players (not in any team)
+    const faPlayers = players.filter((p) => p.teamId === "FA");
+    const shuffled = [...faPlayers].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, 3).map((p) => p.id);
 
     setExplorePool(selected);
@@ -975,7 +1232,7 @@ const initialTeams = NBA_TEAMS.map((team) => {
               {activeTab === "roster" && "球員名單"}
               {activeTab === "market" && "交易市場"}
               {activeTab === "library" && "球員百科 (2026)"}
-              {activeTab === "league" && "聯盟排名"} {activeTab === "league" && (<span className="text-sm ml-3 font-black bg-slate-900 text-white px-3 py-1 rounded-full">{currentWeek} / 30 週</span>)}
+              {activeTab === "league" && "聯盟排名"} {activeTab === "league" && (<span className="text-sm ml-3 font-black bg-slate-900 text-white px-3 py-1 rounded-full">{currentWeek} / {REGULAR_SEASON_GAMES} 週 (例行賽共 {REGULAR_SEASON_GAMES} 輪)</span>)}
               {activeTab === "stats" && "歷史賽績"}
             </h2>
             <p className="text-slate-500 text-sm font-medium">
@@ -984,27 +1241,46 @@ const initialTeams = NBA_TEAMS.map((team) => {
           </div>
 
           
-                <div className="flex gap-4">
+          <div className="flex gap-4">
+            {!isPlayoffs ? (
+              <button
+                onClick={simulateWeek}
+                disabled={isSimulating}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-[28px] font-black text-sm sm:text-base uppercase italic transition-all flex items-center justify-center gap-4 shadow-xl shadow-blue-100 group disabled:bg-slate-100 disabled:text-slate-400 px-4"
+              >
+                {isSimulating ? (
+                  <RefreshCw className="animate-spin" />
+                ) : (
+                  <Play fill="currentColor" />
+                )}
+                快速模擬本週
+              </button>
+            ) : (
+              <>
+                {playoffBracket.every((m) => m.winner) ? (
                   <button
-                    onClick={simulateWeek}
-                    disabled={isSimulating}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-[28px] font-black text-xl uppercase italic transition-all flex items-center justify-center gap-4 shadow-xl shadow-blue-100 group disabled:bg-slate-100 disabled:text-slate-400"
+                    onClick={proceedToNextPlayoffRound}
+                    className="flex-1 bg-orange-600 hover:bg-orange-700 text-white py-6 rounded-[28px] font-black text-sm uppercase italic transition-all flex items-center justify-center gap-4 shadow-xl"
                   >
-                    {isSimulating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
-                    快速模擬本週
+                    進入下一輪季後賽
                   </button>
+                ) : (
                   <button
                     onClick={() => {
-                       // Find user game for this week (simulated/mocked for now)
-                       const userGame = { home: userTeam, away: teams.find(t => t.id !== userTeamId) };
-                       startPlayoffGame(userGame);
+                      const nextMatch = getNextPlayoffMatch();
+                      if (nextMatch) startPlayoffGame(nextMatch);
                     }}
-                    className="px-8 bg-slate-900 hover:bg-slate-800 text-white py-6 rounded-[28px] font-black italic uppercase text-xs transition-all flex items-center justify-center gap-3"
+                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-6 rounded-[28px] font-black italic uppercase text-sm transition-all flex items-center justify-center gap-3"
                   >
                     <Basketball className="text-orange-500" />
-                    進入球場 (手動)
+                    下一場季後賽:{" "}
+                    {getNextPlayoffMatch()?.home.abbreviation || "N/A"} VS{" "}
+                    {getNextPlayoffMatch()?.away.abbreviation || "N/A"}
                   </button>
-                </div>
+                )}
+              </>
+            )}
+          </div>
         </header>
 
         {/* News Bar */}
@@ -1039,96 +1315,206 @@ const initialTeams = NBA_TEAMS.map((team) => {
     
       {activePlayoffGame && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-xl" onClick={() => !isQuarterSimulating && setActivePlayoffGame(null)}></div>
+          <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-3xl" onClick={() => !isQuarterSimulating && setActivePlayoffGame(null)}></div>
           <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            className="relative w-full max-w-4xl bg-white rounded-[40px] overflow-hidden shadow-2xl border-2 border-slate-100 flex flex-col h-[80vh]"
+            initial={{ scale: 0.8, opacity: 0, rotate: -2 }}
+            animate={{ scale: 1, opacity: 1, rotate: 0 }}
+            className="relative w-full max-w-5xl bg-white rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] border-4 border-slate-200 flex flex-col h-[90vh]"
           >
-            <div className="p-8 bg-slate-50 border-b flex justify-between items-center bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
-              <div>
-                <h2 className="text-3xl font-black text-slate-900 italic uppercase">
-                  🏆 季後賽對決 <span className="text-blue-600">Q{playoffQuarter > 4 ? 4 : playoffQuarter}</span>
+            <div className="p-10 bg-slate-900 flex justify-between items-center relative overflow-hidden">
+              <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+              <div className="relative z-10">
+                <h2 className="text-4xl font-black text-white italic uppercase tracking-tighter flex items-center gap-4">
+                  <Trophy className="text-yellow-400" size={32} />
+                  NBA <span className="text-blue-500">PLAYOFFS</span> 2026
                 </h2>
-                <p className="text-sm font-bold text-slate-400">目前狀況: {playoffGameStatus === 'halftime' ? '節間休息' : playoffGameStatus === 'finished' ? '比賽結束' : '比賽進行中'}</p>
+                <div className="flex items-center gap-3 mt-2">
+                   <div className="px-3 py-1 bg-red-600 text-white text-[10px] font-black uppercase italic animate-pulse">Live Broadcast</div>
+                   <p className="text-sm font-bold text-slate-400">
+                    目前階段: {playoffGameStatus === 'halftime' ? '🏀 節間休息' : playoffGameStatus === 'finished' ? '🏁 比賽結束' : `🔥 第 ${playoffQuarter} 節熱鬥中`}
+                   </p>
+                </div>
               </div>
               <button 
                  onClick={() => setActivePlayoffGame(null)} 
-                 className="w-12 h-12 bg-white border-2 border-slate-100 rounded-2xl flex items-center justify-center text-slate-400 hover:text-red-500 hover:border-red-100 transition-all"
+                 className="w-12 h-12 bg-white/10 hover:bg-red-500 text-white rounded-2xl flex items-center justify-center transition-all border border-white/10 relative z-10"
               >
                 ✕
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-12 space-y-12">
-               <div className="flex items-center justify-between gap-12">
-                  <div className="text-center space-y-4 flex-1">
-                    <img src={activePlayoffGame.home.logo} className="w-32 h-32 mx-auto drop-shadow-xl" alt="logo" />
-                    <div className="text-2xl font-black text-slate-900 uppercase italic">{activePlayoffGame.home.name}</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-8xl font-black text-slate-900 tracking-tighter flex gap-4">
-                       <motion.span key={playoffGameScores.home}>{playoffGameScores.home}</motion.span>
-                       <span className="text-slate-200">:</span>
-                       <motion.span key={playoffGameScores.away}>{playoffGameScores.away}</motion.span>
+            <div className="flex-1 overflow-y-auto p-12 space-y-12 bg-slate-50/50">
+               {showPlayoffRoster ? (
+                 <div className="space-y-8">
+                    <div className="flex items-center justify-between">
+                       <h3 className="text-2xl font-black text-slate-900 italic uppercase">調整戰術陣容</h3>
+                       <button 
+                        onClick={() => setShowPlayoffRoster(false)}
+                        className="bg-slate-900 text-white px-6 py-2 rounded-xl font-bold text-sm"
+                       >
+                        返回球場
+                       </button>
                     </div>
-                  </div>
-                   <div className="text-center space-y-4 flex-1">
-                    <img src={activePlayoffGame.away.logo} className="w-32 h-32 mx-auto drop-shadow-xl" alt="logo" />
-                    <div className="text-2xl font-black text-slate-900 uppercase italic">{activePlayoffGame.away.name}</div>
-                  </div>
-               </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                       {players.filter(p => p.teamId === userTeamId).map(p => {
+                          const isStarter = activePlayoffGame.home.lineup?.includes(p.id);
+                          return (
+                            <div key={p.id} className="p-4 bg-white rounded-2xl border-2 border-slate-100 flex items-center gap-4 shadow-sm relative overflow-hidden">
+                               <img src={p.avatar} className="w-12 h-12 rounded-full bg-slate-100" alt="avatar" />
+                               <div className="flex-1 min-w-0">
+                                  <div className="font-black italic text-slate-900 truncate">{p.name}</div>
+                                  <div className="text-[10px] font-bold text-slate-400">{p.position} | OVR {p.rating} | 🔋 {Math.round(p.stamina)}%</div>
+                               </div>
+                               <button 
+                                onClick={() => {
+                                   const currentLineup = activePlayoffGame.home.lineup || [];
+                                   if (isStarter) {
+                                      const newLineup = currentLineup.filter((id: string) => id !== p.id);
+                                      toggleStarter(p.id); 
+                                      setActivePlayoffGame({
+                                        ...activePlayoffGame,
+                                        home: { ...activePlayoffGame.home, lineup: newLineup }
+                                      });
+                                   } else {
+                                      if (currentLineup.length >= 5) return alert("先發限制 5 人");
+                                      const newLineup = [...currentLineup, p.id];
+                                      toggleStarter(p.id); 
+                                      setActivePlayoffGame({
+                                        ...activePlayoffGame,
+                                        home: { ...activePlayoffGame.home, lineup: newLineup }
+                                      });
+                                   }
+                                }}
+                                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase italic transition-all ${isStarter ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                               >
+                                {isStarter ? '先發' : '入替'}
+                               </button>
+                            </div>
+                          )
+                       })}
+                    </div>
+                 </div>
+               ) : (
+                 <>
+                   <div className="flex items-center justify-between gap-8 py-8 px-12 bg-white rounded-[3rem] shadow-xl border border-slate-100 relative">
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-slate-100 font-black text-9xl italic uppercase select-none opacity-50 z-0 tracking-tighter">VS</div>
+                      
+                      <div className="text-center space-y-6 flex-1 z-10">
+                         <motion.div 
+                           initial={{ x: -20, opacity: 0 }}
+                           animate={{ x: 0, opacity: 1 }}
+                           className="relative inline-block"
+                         >
+                           <img src={activePlayoffGame.home.logo} className="w-40 h-40 mx-auto drop-shadow-[0_20px_30px_rgba(0,0,0,0.1)]" alt="logo" />
+                           <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-black px-4 py-1 rounded-full uppercase italic tracking-widest border-2 border-white">HOME</div>
+                         </motion.div>
+                         <div className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">{activePlayoffGame.home.name}</div>
+                      </div>
 
-               <div className="grid grid-cols-2 gap-8">
-                  <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100">
-                    <h4 className="font-bold text-slate-400 mb-4 inline-block px-3 py-1 bg-white rounded-lg uppercase tracking-widest text-[10px]">我的先發</h4>
-                    <div className="grid grid-cols-5 gap-2">
-                      {players.filter(p => activePlayoffGame.home.lineup?.includes(p.id)).slice(0,5).map(p => (
-                        <div key={p.id} className="w-full aspect-square bg-white rounded-xl border border-slate-100 flex flex-col items-center justify-center">
-                          <img src={p.avatar} className="w-8 h-8 rounded-full" alt="p" />
-                          <div className="text-[8px] font-black">{p.rating}</div>
+                      <div className="text-center z-10 px-8 flex-1">
+                         <div className="bg-slate-900 text-white px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest mb-6 inline-block">Scoreboard</div>
+                         <div className="text-[10rem] font-black leading-none text-slate-900 tracking-tighter flex items-center justify-center gap-10">
+                            <div className="flex-1 text-right tabular-nums">{playoffGameScores.home}</div>
+                            <div className="text-slate-200 text-8xl pb-4 select-none">:</div>
+                            <div className="flex-1 text-left tabular-nums">{playoffGameScores.away}</div>
+                         </div>
+                         <div className="flex justify-center gap-4 mt-8">
+                            {[1,2,3,4].map(q => (
+                              <div key={q} className="flex flex-col items-center gap-2">
+                                <div className={`w-4 h-4 rounded-full border-2 ${playoffQuarter >= q ? (playoffQuarter === q && isQuarterSimulating ? 'bg-orange-500 border-orange-200 animate-ping' : 'bg-blue-600 border-blue-200 shadow-[0_0_10px_rgba(37,99,235,0.5)]') : 'bg-slate-200 border-slate-100'}`}></div>
+                                <span className={`text-[10px] font-black ${playoffQuarter === q ? 'text-blue-600' : 'text-slate-300'}`}>Q{q}</span>
+                              </div>
+                            ))}
+                         </div>
+                      </div>
+
+                       <div className="text-center space-y-6 flex-1 z-10">
+                         <motion.div 
+                           initial={{ x: 20, opacity: 0 }}
+                           animate={{ x: 0, opacity: 1 }}
+                           className="relative inline-block"
+                         >
+                           <img src={activePlayoffGame.away.logo} className="w-40 h-40 mx-auto drop-shadow-[0_20px_30px_rgba(0,0,0,0.1)]" alt="logo" />
+                           <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-[10px] font-black px-4 py-1 rounded-full uppercase italic tracking-widest border-2 border-white">AWAY</div>
+                         </motion.div>
+                         <div className="text-3xl font-black text-slate-900 uppercase italic tracking-tighter">{activePlayoffGame.away.name}</div>
+                      </div>
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-12">
+                      <div className="bg-white rounded-[2.5rem] p-8 border-2 border-slate-100 shadow-sm">
+                        <div className="flex items-center justify-between mb-6">
+                          <h4 className="font-black text-slate-900 uppercase italic tracking-tight flex items-center gap-2">
+                            <Users size={16} className="text-blue-600" />
+                            我的球隊陣容
+                          </h4>
+                          {playoffGameStatus === 'halftime' && (
+                             <button 
+                               onClick={() => setShowPlayoffRoster(true)}
+                               className="px-4 py-2 bg-blue-600 text-white rounded-xl font-black italic text-[10px] uppercase shadow-lg shadow-blue-200"
+                             >
+                               點擊換人
+                             </button>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                    {playoffGameStatus === 'halftime' && (
-                      <button 
-                        onClick={() => { setActiveTab('roster'); setActivePlayoffGame(null); }}
-                        className="mt-4 w-full bg-blue-600 text-white rounded-xl py-2 font-black italic text-xs uppercase"
-                      >
-                        調整陣容
-                      </button>
-                    )}
-                  </div>
-                  <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100">
-                    <h4 className="font-bold text-slate-400 mb-4 inline-block px-3 py-1 bg-white rounded-lg uppercase tracking-widest text-[10px]">對手先發</h4>
-                     <div className="grid grid-cols-5 gap-2 opacity-50">
-                      {players.filter(p => p.teamId === activePlayoffGame.away.id).slice(0,5).map(p => (
-                        <div key={p.id} className="w-full aspect-square bg-white rounded-xl border border-slate-100 flex flex-col items-center justify-center">
-                          <img src={p.avatar} className="w-8 h-8 rounded-full" alt="p" />
-                          <div className="text-[8px] font-black">{p.rating}</div>
+                        <div className="grid grid-cols-5 gap-3">
+                          {players.filter(p => activePlayoffGame.home.lineup?.includes(p.id)).slice(0,5).map(p => (
+                            <div key={p.id} className="relative group flex flex-col items-center">
+                              <div className="w-full aspect-square bg-white rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center gap-1 overflow-hidden relative shadow-sm hover:border-blue-200 transition-colors">
+                                <img src={p.avatar} className="w-10 h-10 rounded-full" alt="p" />
+                                <div className="text-[10px] font-black text-slate-900">OVR {p.rating}</div>
+                                <div className={`absolute bottom-0 left-0 right-0 h-1.5 ${p.stamina > 70 ? 'bg-emerald-500' : p.stamina > 40 ? 'bg-orange-500' : 'bg-red-500'}`} style={{ width: `${p.stamina}%` }}></div>
+                              </div>
+                              <div className="mt-2 text-[9px] font-black text-slate-500 uppercase truncate w-full text-center px-1">{p.name.split(' ').pop()}</div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-               </div>
+                      </div>
+
+                      <div className="bg-white rounded-[2.5rem] p-8 border-2 border-slate-100 shadow-sm opacity-80">
+                         <div className="flex items-center justify-between mb-6">
+                          <h4 className="font-black text-slate-900 uppercase italic tracking-tight flex items-center gap-2">
+                            <Shield size={16} className="text-slate-400" />
+                            對手防守陣容
+                          </h4>
+                        </div>
+                         <div className="grid grid-cols-5 gap-3">
+                          {players.filter(p => activePlayoffGame.away.lineup?.includes(p.id)).slice(0,5).map(p => (
+                            <div key={p.id} className="flex flex-col items-center">
+                              <div className="w-full aspect-square bg-slate-50/50 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center gap-1 opacity-70 relative overflow-hidden shadow-sm">
+                                <img src={p.avatar} className="w-10 h-10 rounded-full grayscale" alt="p" />
+                                <div className="text-[10px] font-black text-slate-400">OVR {p.rating}</div>
+                              </div>
+                              <div className="mt-2 text-[9px] font-black text-slate-400 uppercase truncate w-full text-center px-1">{p.name.split(' ').pop()}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                   </div>
+                </>
+               )}
             </div>
 
-            <div className="p-8 bg-white border-t flex gap-4">
-              {playoffGameStatus === 'finished' ? (
-                 <button 
-                  onClick={() => setActivePlayoffGame(null)}
-                  className="flex-1 bg-slate-900 text-white py-6 rounded-3xl font-black text-xl uppercase italic shadow-lg"
-                 >
-                   離開球場
-                 </button>
-              ) : (
-                <button 
-                  disabled={isQuarterSimulating}
-                  onClick={simulatePlayoffQuarter}
-                  className="flex-1 bg-blue-600 text-white py-6 rounded-3xl font-black text-xl uppercase italic shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:bg-slate-200 transition-all"
-                >
-                  {isQuarterSimulating ? '模擬中...' : `開始第 ${playoffQuarter} 節`}
-                </button>
+            <div className="p-10 bg-white border-t-2 border-slate-100 flex gap-6">
+              {!showPlayoffRoster && (
+                playoffGameStatus === 'finished' ? (
+                  <button 
+                    onClick={() => setActivePlayoffGame(null)}
+                    className="flex-1 bg-slate-900 text-white py-8 rounded-[2rem] font-black text-2xl uppercase italic shadow-2xl hover:bg-black transition-all flex items-center justify-center gap-4"
+                  >
+                    <Basketball /> 離開球場
+                  </button>
+                ) : (
+                  <button 
+                    disabled={isQuarterSimulating}
+                    onClick={simulatePlayoffQuarter}
+                    className="flex-1 bg-blue-600 text-white py-8 rounded-[2rem] font-black text-2xl uppercase italic shadow-[0_20px_50px_-10px_rgba(37,99,235,0.5)] hover:bg-blue-700 disabled:bg-slate-200 transition-all flex items-center justify-center gap-4"
+                  >
+                    {isQuarterSimulating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
+                    {isQuarterSimulating ? '模擬激戰中...' : `開始第 ${playoffQuarter} 節 (${playoffQuarter === 4 ? '末節' : playoffQuarter === 1 ? '開賽' : playoffQuarter})`}
+                  </button>
+                )
               )}
             </div>
           </motion.div>
@@ -1228,6 +1614,53 @@ const initialTeams = NBA_TEAMS.map((team) => {
         <div className="grid gap-8">
           {activeTab === "dashboard" && (
             <>
+              {isPlayoffs && (
+                <div className="bg-slate-900 p-8 rounded-[2rem] border-2 border-slate-800 shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-8 opacity-10">
+                    <Trophy size={120} className="text-white" />
+                  </div>
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-3 text-yellow-400 mb-6">
+                      <Trophy size={24} />
+                      <h3 className="text-2xl font-black italic uppercase tracking-tighter">季後賽對陣圖 (Playoff Bracket)</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {playoffBracket.map((match, idx) => (
+                        <div key={idx} className={`p-5 rounded-2xl border-2 transition-all ${match.winner ? 'bg-slate-800/50 border-slate-700' : 'bg-blue-600/10 border-blue-500/30 ring-1 ring-blue-500/20'}`}>
+                           <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 flex justify-between">
+                             <span>Match {idx + 1}</span>
+                             {match.winner && <span className="text-emerald-400">Finished</span>}
+                           </div>
+                           <div className="space-y-3">
+                              <div className={`flex items-center justify-between gap-3 ${match.winner && match.winner.id !== match.home.id ? 'opacity-40' : ''}`}>
+                                 <div className="flex items-center gap-2">
+                                    <img src={match.home.logo} className="w-6 h-6" alt="h" />
+                                    <span className="text-sm font-black text-white">{match.home.abbreviation}</span>
+                                 </div>
+                                 <span className="text-lg font-mono text-blue-400">{match.scores.home}</span>
+                              </div>
+                              <div className="h-px bg-slate-800"></div>
+                              <div className={`flex items-center justify-between gap-3 ${match.winner && match.winner.id !== match.away.id ? 'opacity-40' : ''}`}>
+                                 <div className="flex items-center gap-2">
+                                    <img src={match.away.logo} className="w-6 h-6" alt="a" />
+                                    <span className="text-sm font-black text-white">{match.away.abbreviation}</span>
+                                 </div>
+                                 <span className="text-lg font-mono text-blue-400">{match.scores.away}</span>
+                              </div>
+                           </div>
+                        </div>
+                      ))}
+                    </div>
+                    {playoffBracket.every(m => m.winner) && (
+                       <div className="mt-8 p-4 bg-yellow-400/10 border border-yellow-400/20 rounded-xl text-yellow-400 text-sm font-bold text-center italic">
+                         本輪季後賽已完賽，請點擊上方按鈕進入下一輪！
+                       </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm flex flex-col justify-between">
                   <div>
@@ -1622,14 +2055,17 @@ const initialTeams = NBA_TEAMS.map((team) => {
 
               {marketSubTab === "players" ? (
                 <div className="space-y-12">
-                  <div className="bg-slate-900 rounded-[2.5rem] p-10 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl">
-                    <div className="relative z-10 space-y-6">
-                      <div className="bg-blue-600/20 text-blue-400 px-4 py-2 rounded-2xl inline-flex items-center gap-3 border border-blue-600/30">
-                        <Clock size={16} />
-                        <span className="font-black italic uppercase tracking-tighter">
-                          探索冷卻時間
-                        </span>
-                      </div>
+            <div className="bg-slate-900 rounded-[2.5rem] p-10 flex flex-col items-center justify-center text-center relative overflow-hidden shadow-2xl">
+               <div className="relative z-10 space-y-6">
+                 <div className="bg-blue-600/20 text-blue-400 px-4 py-2 rounded-2xl inline-flex items-center gap-3 border border-blue-600/30">
+                   <Clock size={16} />
+                   <span className="font-black italic uppercase tracking-tighter">
+                     探索冷卻時間
+                   </span>
+                 </div>
+                 <div className="text-xs font-black text-blue-400 bg-blue-900/50 px-4 py-2 rounded-full inline-block uppercase tracking-widest border border-blue-800">
+                   目前自由市場共有 {players.filter(p => p.teamId === 'FA').length} 位球員
+                 </div>
 
                       {timeToNextExplore > 0 ? (
                         <div className="space-y-2">
@@ -1688,4 +2124,301 @@ const initialTeams = NBA_TEAMS.map((team) => {
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  
+                        {players
+                          .filter((p) => explorePool.includes(p.id))
+                          .map((p) => (
+                            <div key={p.id} className="space-y-4">
+                              <PlayerCard player={p} />
+                              <button
+                                onClick={() => buyPlayer(p.id)}
+                                className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-2xl py-4 font-black italic uppercase text-sm transition-all flex items-center justify-center gap-3 shadow-lg shadow-blue-100"
+                              >
+                                <DollarSign size={18} />
+                                簽約球員 ($${(p.price / 1000000).toFixed(1)}M)
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                  {EQUIPMENT_MARKET.map((item) => (
+                    <div
+                      key={item.id}
+                      className="bg-white border-2 border-slate-100 rounded-3xl p-6 hover:shadow-xl transition-all relative group"
+                    >
+                      <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-orange-50 transition-colors">
+                        <item.icon
+                          size={32}
+                          className="text-slate-400 group-hover:text-orange-500"
+                        />
+                      </div>
+                      <div className="space-y-1 mb-6">
+                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          {item.level} {item.type}
+                        </div>
+                        <h4 className="text-xl font-black text-slate-900 italic uppercase">
+                          {item.name}
+                        </h4>
+                      </div>
+                      <div className="flex flex-wrap gap-2 mb-8">
+                        {item.bonus.offense && (
+                          <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-[10px] font-black">
+                            OFF +{item.bonus.offense}
+                          </span>
+                        )}
+                        {item.bonus.defense && (
+                          <span className="px-3 py-1 bg-orange-50 text-orange-600 rounded-lg text-[10px] font-black">
+                            DEF +{item.bonus.defense}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setSelectedGearPlayerId(item.id)}
+                        className="w-full bg-slate-900 text-white rounded-2xl py-4 font-black italic uppercase text-xs transition-all hover:bg-slate-800"
+                      >
+                        購買裝備 ($${(item.price / 1000000).toFixed(1)}M)
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "library" && (
+            <div className="space-y-8">
+              <div className="flex flex-col md:flex-row gap-6 items-start md:items-center justify-between">
+                <div className="bg-white border-2 border-slate-100 rounded-3xl p-6 flex flex-1 items-center gap-4 focus-within:border-blue-500 transition-colors w-full">
+                  <Search className="text-slate-400" />
+                  <input
+                    type="text"
+                    value={librarySearch}
+                    onChange={(e) => setLibrarySearch(e.target.value)}
+                    placeholder="搜尋全聯盟球星資料庫..."
+                    className="bg-transparent border-none outline-none w-full font-bold text-slate-900"
+                  />
+                </div>
+                <div className="bg-slate-900 px-8 py-6 rounded-3xl text-white flex items-center gap-6 shadow-xl">
+                  <div className="text-center">
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">球員總數</div>
+                    <div className="text-2xl font-black italic">{players.filter(p => !p.id.startsWith('rp-')).length} 傳奇/球星</div>
+                  </div>
+                  <div className="w-px h-10 bg-slate-800"></div>
+                  <div className="text-center">
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">已取得</div>
+                    <div className="text-2xl font-black italic text-blue-400">{players.filter(p => collectedPlayerIds.includes(p.id)).length}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+                {players
+                  .filter(p => !p.id.startsWith('rp-')) 
+                  .filter(p => p.name.toLowerCase().includes(librarySearch.toLowerCase()) || p.position.toLowerCase().includes(librarySearch.toLowerCase()))
+                  .sort((a, b) => b.rating - a.rating)
+                  .slice(0, 650).map((p) => (
+                  <PlayerCard 
+                    key={p.id} 
+                    player={p} 
+                    isObtained={true}
+                  />
+                ))}
+              </div>
+              
+              {players.filter(p => !p.id.startsWith('rp-') && p.name.toLowerCase().includes(librarySearch.toLowerCase())).length > 650 && (
+                <div className="text-center py-10">
+                  <p className="text-slate-400 font-bold italic">僅顯示前 650 名匹配球員...</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === "league" && (
+            <div className="bg-white border-2 border-slate-100 rounded-[2.5rem] overflow-hidden shadow-sm">
+              <div className="grid grid-cols-12 gap-4 p-8 border-b bg-slate-50 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <div className="col-span-1">Rank</div>
+                <div className="col-span-4">Team</div>
+                <div className="col-span-2 text-center">W - L</div>
+                <div className="col-span-2 text-center">WIN%</div>
+                <div className="col-span-3 text-right">Budget</div>
+              </div>
+              {standings.map((team, idx) => (
+                <div
+                  key={team.id}
+                  className="grid grid-cols-12 gap-4 p-8 border-b last:border-0 items-center hover:bg-slate-50 transition-colors"
+                >
+                  <div className="col-span-1 font-black text-2xl italic text-slate-200">
+                    #{idx + 1}
+                  </div>
+                  <div className="col-span-4 flex items-center gap-4">
+                    <img src={team.logo} className="w-10 h-10" alt="logo" />
+                    <div>
+                      <div className="font-black text-slate-900 uppercase italic">
+                        {team.name}
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-400">
+                        {team.city}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-span-2 text-center font-mono font-black text-xl">
+                    {team.stats.wins} - {team.stats.losses}
+                  </div>
+                  <div className="col-span-2 text-center">
+                    <div className="text-xs font-black text-blue-600 bg-blue-50 py-1 rounded-lg">
+                      {((team.stats.wins || 0) / ((team.stats.wins || 0) + (team.stats.losses || 1)) * 100).toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="col-span-3 text-right font-black text-slate-400">
+                    $${(team.budget / 1000000).toFixed(1)}M
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          
+          {activeTab === "stats" && (
+            <div className="space-y-6">
+              {games.length === 0 ? (
+                <div className="bg-white border-2 border-slate-100 rounded-[2.5rem] p-20 text-center">
+                  <Calendar className="mx-auto text-slate-100 mb-6" size={48} />
+                  <h3 className="font-black text-2xl text-slate-900">
+                    尚無歷史賽事
+                  </h3>
+                </div>
+              ) : (
+                <div className="grid gap-4">
+                  {[...games].reverse().map((game, idx) => {
+                    const hTeam = teams.find((t) => t.id === game.homeTeamId);
+                    const aTeam = teams.find((t) => t.id === game.awayTeamId);
+                    return (
+                      <div
+                        key={idx}
+                        className="bg-white p-6 rounded-3xl border-2 border-slate-100 flex items-center justify-between hover:border-blue-200 transition-all"
+                      >
+                        <div className="flex items-center gap-12 flex-1">
+                          <div className="flex items-center gap-4 min-w-[150px]">
+                            <img src={hTeam?.logo} className="w-10 h-10" alt="h" />
+                            <span className="font-black uppercase italic">
+                              {hTeam?.abbreviation}
+                            </span>
+                          </div>
+                          <div className="text-4xl font-black italic tracking-tighter">
+                            <span
+                              className={
+                                game.homeScore > game.awayScore
+                                  ? "text-blue-600"
+                                  : "text-slate-300"
+                              }
+                            >
+                              {game.homeScore}
+                            </span>
+                            <span className="text-slate-100 mx-4">:</span>
+                            <span
+                              className={
+                                game.awayScore > game.homeScore
+                                  ? "text-blue-600"
+                                  : "text-slate-300"
+                              }
+                            >
+                              {game.awayScore}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-4 min-w-[150px] justify-end">
+                            <span className="font-black uppercase italic">
+                              {aTeam?.abbreviation}
+                            </span>
+                            <img src={aTeam?.logo} className="w-10 h-10" alt="a" />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+
+    <AnimatePresence>
+      {news && (
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[200]"
+        >
+          <div className="bg-slate-900 text-white px-8 py-5 rounded-[2rem] shadow-2xl flex items-center gap-6 border-2 border-white/10 backdrop-blur-xl">
+            <div className="w-10 h-10 bg-blue-600 rounded-2xl flex items-center justify-center animate-pulse">
+              <Basketball size={20} />
+            </div>
+            <p className="font-black italic uppercase tracking-tight text-sm pr-4">
+              {news}
+            </p>
+            <button
+              onClick={() => setNews(null)}
+              className="text-slate-500 hover:text-white transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    <AnimatePresence>
+      {selectedGearPlayerId && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setSelectedGearPlayerId(null)}
+          ></div>
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative w-full max-w-xl bg-white rounded-[40px] p-10 shadow-2xl"
+          >
+            <h3 className="text-3xl font-black text-slate-900 italic mb-8 uppercase">
+              選擇裝備球員
+            </h3>
+            <div className="grid grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto mb-8 pr-2 custom-scrollbar">
+              {userRoster.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => {
+                    const item = EQUIPMENT_MARKET.find((i) => i.id === selectedGearPlayerId);
+                    if (item) buyEquipment(p.id, item);
+                    setSelectedGearPlayerId(null);
+                  }}
+                  className="flex items-center gap-4 p-4 bg-slate-50 hover:bg-blue-50 rounded-2xl border-2 border-slate-100 hover:border-blue-200 transition-all text-left"
+                >
+                  <img src={p.avatar} className="w-10 h-10 rounded-full" alt="p" />
+                  <div>
+                    <div className="font-black text-slate-800 text-xs">
+                      {p.name}
+                    </div>
+                    <div className="text-[10px] font-bold text-slate-400 italic">
+                      OVR {Math.round(p.rating)}
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setSelectedGearPlayerId(null)}
+              className="w-full bg-slate-100 text-slate-400 py-4 rounded-2xl font-black uppercase text-xs"
+            >
+              取消購買
+            </button>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  </div>
+  );
+}

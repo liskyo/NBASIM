@@ -34,6 +34,9 @@ export interface Player {
   color: string;
   isLegend?: boolean;
   equipment?: Equipment[];
+  stamina: number; // 0-100
+  endurance: number; // 0.5 - 1.5 multiplier for decay
+  effectiveRating?: number; // Calculated rating based on stamina and equipment
 }
 
 export interface Team {
@@ -59,6 +62,10 @@ export interface GameResult {
   awayScore: number;
   quarters: { [key: string]: number }[];
   date: string;
+  playerUpdates?: {
+    id: string;
+    staminaChange: number;
+  }[];
 }
 
 export interface Season {
