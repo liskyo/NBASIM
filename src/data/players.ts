@@ -4,11 +4,11 @@ import { generateRandomName } from '../lib/names';
 
 const PLAYER_DATA: Omit<Player, 'price' | 'stamina' | 'endurance'>[] = [
   // --- Boston Celtics ---
-  { id: 'bos-1', name: 'Jayson Tatum', teamId: 'bos', position: 'SF', rating: 95, offense: 96, defense: 90, stats: { ppg: 26.9, rpg: 8.1, apg: 4.9, spg: 1.0, bpg: 0.6 }, color: GET_RATING_COLOR(95) },
-  { id: 'bos-2', name: 'Jaylen Brown', teamId: 'bos', position: 'SG', rating: 92, offense: 93, defense: 91, stats: { ppg: 23.0, rpg: 5.5, apg: 3.6, spg: 1.2, bpg: 0.5 }, color: GET_RATING_COLOR(92) },
-  { id: 'bos-3', name: 'Kristaps Porziņģis', teamId: 'bos', position: 'C', rating: 88, offense: 89, defense: 91, stats: { ppg: 20.1, rpg: 7.2, apg: 2.0, spg: 0.7, bpg: 1.9 }, color: GET_RATING_COLOR(88) },
-  { id: 'bos-4', name: 'Jrue Holiday', teamId: 'bos', position: 'PG', rating: 87, offense: 82, defense: 96, stats: { ppg: 12.5, rpg: 5.4, apg: 4.8, spg: 0.9, bpg: 0.8 }, color: GET_RATING_COLOR(87) },
-  { id: 'bos-5', name: 'Derrick White', teamId: 'bos', position: 'SG', rating: 86, offense: 84, defense: 92, stats: { ppg: 15.2, rpg: 4.2, apg: 5.2, spg: 1.0, bpg: 1.2 }, color: GET_RATING_COLOR(86) },
+  { id: 'bos-1', name: 'Jayson Tatum', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/4065648.png&w=350', teamId: 'bos', position: 'SF', rating: 95, offense: 96, defense: 90, stats: { ppg: 26.9, rpg: 8.1, apg: 4.9, spg: 1.0, bpg: 0.6 }, color: GET_RATING_COLOR(95) },
+  { id: 'bos-2', name: 'Jaylen Brown', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/3917376.png&w=350', teamId: 'bos', position: 'SG', rating: 92, offense: 93, defense: 91, stats: { ppg: 23.0, rpg: 5.5, apg: 3.6, spg: 1.2, bpg: 0.5 }, color: GET_RATING_COLOR(92) },
+  { id: 'bos-3', name: 'Kristaps Porziņģis', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/3102531.png&w=350', teamId: 'bos', position: 'C', rating: 88, offense: 89, defense: 91, stats: { ppg: 20.1, rpg: 7.2, apg: 2.0, spg: 0.7, bpg: 1.9 }, color: GET_RATING_COLOR(88) },
+  { id: 'bos-4', name: 'Jrue Holiday', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/3429.png&w=350', teamId: 'bos', position: 'PG', rating: 87, offense: 82, defense: 96, stats: { ppg: 12.5, rpg: 5.4, apg: 4.8, spg: 0.9, bpg: 0.8 }, color: GET_RATING_COLOR(87) },
+  { id: 'bos-5', name: 'Derrick White', avatarUrl: 'https://a.espncdn.com/combiner/i?img=/i/headshots/nba/players/full/3133601.png&w=350', teamId: 'bos', position: 'SG', rating: 86, offense: 84, defense: 92, stats: { ppg: 15.2, rpg: 4.2, apg: 5.2, spg: 1.0, bpg: 1.2 }, color: GET_RATING_COLOR(86) },
   { id: 'bos-6', name: 'Al Horford', teamId: 'bos', position: 'C', rating: 82, offense: 78, defense: 86, stats: { ppg: 8.6, rpg: 6.4, apg: 2.6, spg: 0.6, bpg: 1.0 }, color: GET_RATING_COLOR(82) },
   { id: 'bos-7', name: 'Payton Pritchard', teamId: 'bos', position: 'PG', rating: 79, offense: 84, defense: 72, stats: { ppg: 9.6, rpg: 3.2, apg: 3.4, spg: 0.5, bpg: 0.1 }, color: GET_RATING_COLOR(79) },
   { id: 'bos-8', name: 'Sam Hauser', teamId: 'bos', position: 'SF', rating: 77, offense: 82, defense: 70, stats: { ppg: 9.0, rpg: 3.5, apg: 1.0, spg: 0.5, bpg: 0.3 }, color: GET_RATING_COLOR(77) },

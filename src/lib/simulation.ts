@@ -3,6 +3,17 @@ import { Player, Team, GameResult } from '../types';
 export function calculateTeamOVR(players: Player[]): { offense: number; defense: number; overall: number } {
   if (players.length === 0) return { offense: 0, defense: 0, overall: 0 };
   
+  // Lineup Penalty Logic: 1 C, 2 F, 2 G
+  let c = 0, f = 0, g = 0;
+  players.forEach(p => {
+     if (p.position === 'C') c++;
+     else if (p.position === 'SF' || p.position === 'PF') f++;
+     else if (p.position === 'PG' || p.position === 'SG') g++;
+  });
+  
+  const missing = Math.max(0, 1 - c) + Math.max(0, 2 - f) + Math.max(0, 2 - g);
+  const penalty = 1 - (missing * 0.05);
+
   const playersWithStaminaEffect = players.map(p => {
     let offBonus = 0;
     let defBonus = 0;
@@ -15,11 +26,11 @@ export function calculateTeamOVR(players: Player[]): { offense: number; defense:
     // Formula: 0.7 + (stamina / 100) * 0.3
     const staminaFactor = 0.7 + (p.stamina / 100) * 0.3;
 
-    const baseOff = (p.offense + offBonus) * staminaFactor;
-    const baseDef = (p.defense + defBonus) * staminaFactor;
+    const baseOff = (p.offense + offBonus) * staminaFactor * penalty;
+    const baseDef = (p.defense + defBonus) * staminaFactor * penalty;
     
     // Effective rating accounts for gear and stamina
-    const effectiveRating = (p.rating + (offBonus + defBonus) / 2) * staminaFactor;
+    const effectiveRating = (p.rating + (offBonus + defBonus) / 2) * staminaFactor * penalty;
     
     return {
       ...p,

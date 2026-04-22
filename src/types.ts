@@ -18,6 +18,7 @@ export interface Equipment {
 export interface Player {
   id: string;
   name: string;
+  avatarUrl?: string; // 更新為 avatarUrl
   teamId: string;
   position: 'PG' | 'SG' | 'SF' | 'PF' | 'C';
   rating: PlayerRating;
@@ -33,6 +34,7 @@ export interface Player {
   };
   color: string;
   isLegend?: boolean;
+  isSuperstar?: boolean; // 新增此屬性
   equipment?: Equipment[];
   stamina: number; // 0-100
   endurance: number; // 0.5 - 1.5 multiplier for decay

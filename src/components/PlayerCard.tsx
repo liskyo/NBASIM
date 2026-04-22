@@ -8,6 +8,7 @@ interface PlayerCardProps {
   player: Player;
   isDetailed?: boolean;
   isObtained?: boolean;
+  teamName?: string;
 }
 
 const GearIcon = ({ type, level, size = 12 }: { type: string, level: string, size?: number }) => {
@@ -37,7 +38,7 @@ const GearIcon = ({ type, level, size = 12 }: { type: string, level: string, siz
   }
 };
 
-export const PlayerCard: React.FC<PlayerCardProps> = ({ player, isDetailed = false, isObtained = true }) => {
+export const PlayerCard: React.FC<PlayerCardProps> = ({ player, isDetailed = false, isObtained = true, teamName }) => {
   const color = GET_RATING_COLOR(player.rating);
   const label = GET_RATING_LABEL(player.rating);
 
@@ -69,6 +70,12 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, isDetailed = fal
           <TrophyIcon size={12} /> Legend
         </div>
       )}
+      
+      {!player.isLegend && player.isSuperstar && (
+        <div className="absolute top-0 left-0 bg-emerald-500 text-white text-[10px] font-black px-3 py-1.5 rounded-br-2xl shadow-md z-10 flex items-center gap-1.5 uppercase italic tracking-tighter">
+           <Zap size={12} />
+        </div>
+      )}
 
       {isFatigued && isObtained && (
         <div className="absolute top-2 right-2 bg-red-100 text-red-600 p-1.5 rounded-xl z-10 border border-red-200 animate-pulse">
@@ -78,7 +85,18 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, isDetailed = fal
       
       <div className="flex items-center gap-4 mb-6">
         <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center border-2 border-slate-100 relative group overflow-hidden">
-          <User className="text-slate-300 group-hover:scale-110 transition-transform" size={32} />
+          <User className="fallback-user text-slate-300 group-hover:scale-110 transition-transform" size={32} />
+          <img 
+            src={player.avatarUrl} 
+            alt={player.name} 
+            className="w-full h-full object-cover absolute inset-0 z-10 opacity-0 transition-opacity" 
+            onLoad={(e) => {
+              e.currentTarget.classList.remove('opacity-0');
+            }}
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+            }}
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-slate-100/50 to-transparent"></div>
         </div>
         <div className="flex-1">
@@ -88,6 +106,9 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, isDetailed = fal
                {label}
              </span>
              <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded-lg uppercase tracking-widest">{player.position}</span>
+             {teamName && (
+               <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg uppercase tracking-widest">{teamName}</span>
+             )}
           </div>
         </div>
       </div>

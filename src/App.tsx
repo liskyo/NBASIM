@@ -54,7 +54,7 @@ export default function App() {
   const [players, setPlayers] = useState<Player[]>(INITIAL_PLAYERS);
   const [games, setGames] = useState<GameResult[]>([]);
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "roster" | "league" | "stats" | "market" | "library"
+    "dashboard" | "roster" | "league" | "stats" | "market" | "library" | "team_rosters"
   >("dashboard");
   const [librarySearch, setLibrarySearch] = useState("");
   const [collectedPlayerIds, setCollectedPlayerIds] = useState<string[]>(() => {
@@ -200,6 +200,8 @@ export default function App() {
     if (finished) {
        if (playoffRound === 3) {
           setNews(`🏁 傳奇誕生！${match.winner.name} 奪得 2026 NBA 總冠軍！`);
+          // Trigger season transition after finals
+          setTimeout(startNextSeason, 2000); 
        } else {
           setNews(`第 ${playoffRound} 輪結束！準備進入下一階段...`);
        }
@@ -490,21 +492,24 @@ export default function App() {
   }, [teams]);
 
   const startNextSeason = () => {
-    // 1. Reset Stats
+    // 1. Reset Stats & Playoff Status
     const resetTeams = teams.map((t) => ({
       ...t,
       stats: { wins: 0, losses: 0 },
     }));
+    setIsPlayoffs(false);
+    setPlayoffRound(0);
+    setPlayoffBracket([]);
 
-    // 2. Identify bottom 10 teams
+    // 2. Identify bottom 10 teams based on FINAL stats (wins)
     const sortedByOldPerf = [...teams].sort(
       (a, b) => a.stats.wins - b.stats.wins,
     );
     const bottom10Ids = sortedByOldPerf.slice(0, 10).map((t) => t.id);
 
-    // 3. Create 10 new custom draft players (85-95 OVR)
+    // 3. Create 10 new custom draft players (90-95 OVR)
     const newDraftPlayers: Player[] = bottom10Ids.map((tid, idx) => {
-      const rating = Math.floor(Math.random() * 11) + 85;
+      const rating = Math.floor(Math.random() * 6) + 90; // 90-95 OVR
       const positions: Player["position"][] = ["PG", "SG", "SF", "PF", "C"];
       const pos = positions[Math.floor(Math.random() * positions.length)];
       
@@ -516,7 +521,8 @@ export default function App() {
         rating: rating,
         offense: rating + 2,
         defense: rating - 2,
-        price: 0, // Free draft pick
+        isSuperstar: true,
+        price: 0,
         stats: { ppg: 0, rpg: 0, apg: 0, spg: 0, bpg: 0, games: 0 },
         stamina: 100,
         endurance: 0.8 + Math.random() * 0.4,
@@ -530,7 +536,6 @@ export default function App() {
     const finalTeams = resetTeams.map((team) => {
       let teamRoster = updatedPlayers.filter((p) => p.teamId === team.id);
 
-      // If team has more than 15 players, release the weakest ones
       if (teamRoster.length > 15) {
         const sortedRoster = [...teamRoster].sort(
           (a, b) => a.rating - b.rating,
@@ -557,8 +562,10 @@ export default function App() {
     setTeams(finalTeams);
     setPlayers(updatedPlayers);
     setGames([]); // Reset schedule
+    setCurrentWeek(1); // Back to week 1
+    
     setNews(
-      "🏀 新賽季選秀大會圓滿結束！聯盟注入了 10 位評價 85-95 的頂級新秀，墊底球隊已獲得即戰力。準備開啟新的篇章！",
+      "🏀 賽季圓滿結束！墊底的 10 支球隊已獲得評價 90-95 的超級新星！新賽季正式開打！",
     );
   };
 
@@ -567,14 +574,15 @@ export default function App() {
     if (!activePlayoffGame || isQuarterSimulating) return;
     setIsQuarterSimulating(true);
     
-    // Calculate quarter performance based on OVR
+    // Calculate quarter performance based on OVR with more realistic scoring and lineup penalty
     const homePool = players.filter(p => activePlayoffGame.home.lineup?.includes(p.id));
     const awayPool = players.filter(p => activePlayoffGame.away.lineup?.includes(p.id));
+    
     const homeOVR = calculateTeamOVR(homePool.length >= 5 ? homePool : players.filter(p => p.teamId === activePlayoffGame.home.id).slice(0,5));
     const awayOVR = calculateTeamOVR(awayPool.length >= 5 ? awayPool : players.filter(p => p.teamId === activePlayoffGame.away.id).slice(0,5));
     
-    // Baseline points per quarter
-    const getQPoints = (ovr: any) => Math.floor(Math.random() * 10) + 15 + (ovr.offense / 4);
+    // Realistic points: OVR / 2 + random(0-6)
+    const getQPoints = (ovr: any) => Math.floor(ovr.offense * 0.35) + Math.floor(Math.random() * 6);
     const hQ = getQPoints(homeOVR);
     const aQ = getQPoints(awayOVR);
     
@@ -586,34 +594,83 @@ export default function App() {
          home: startH + Math.round((hQ / 10) * i),
          away: startA + Math.round((aQ / 10) * i)
        });
-       await new Promise(r => setTimeout(r, 80));
+       await new Promise(r => setTimeout(r, 50));
     }
     
+    // Ensure accurate final score for the quarter added to previous total
+    setPlayoffGameScores(prev => ({
+        home: prev.home + hQ - Math.round((hQ / 10) * 10), // Adjust for rounding error if any
+        away: prev.away + aQ - Math.round((aQ / 10) * 10)
+    }));
+    
     setPlayoffQuarter(prev => prev + 1);
-    if (playoffQuarter >= 4) {
+    
+    // 檢查是否結束：第四節後 若平分則繼續
+    const isTied = (startH + hQ) === (startA + aQ);
+    
+    if (playoffQuarter >= 4 && !isTied) {
       setPlayoffGameStatus('finished');
-      // Update bracket winner
+      // Update bracket winner using the FINAL total score
+      const finalHomeScore = startH + hQ;
+      const finalAwayScore = startA + aQ;
       const mIdx = playoffBracket.findIndex(m => m.home.id === activePlayoffGame.home.id && m.away.id === activePlayoffGame.away.id);
       if (mIdx !== -1) {
-         finalizePlayoffGame(mIdx, playoffGameScores.home > playoffGameScores.away, playoffGameScores.home, playoffGameScores.away);
+         finalizePlayoffGame(mIdx, finalHomeScore > finalAwayScore, finalHomeScore, finalAwayScore);
       }
     } else {
       setPlayoffGameStatus('halftime');
-      // Update activePlayoffGame and teams state before next quarter if needed
-      // But the simulation uses current players filtered by team lineup
+      if (playoffQuarter >= 4 && isTied) {
+          setNews(`⚡ 激戰平手！進入延長賽！`);
+      }
     }
 
-    // Stamina decay after quarter (Manual rotation assumes starters 8m, bench 4m)
+    // Stamina decay and Auto-Substitution logic
     setPlayers(prev => prev.map(p => {
       const isHome = p.teamId === activePlayoffGame.home.id;
       const isAway = p.teamId === activePlayoffGame.away.id;
       if (!isHome && !isAway) return p;
       
-      const lineup = isHome ? activePlayoffGame.home.lineup : activePlayoffGame.away.lineup;
+      const team = isHome ? activePlayoffGame.home : activePlayoffGame.away;
+      let lineup = team.lineup || [];
       const isStarter = lineup?.includes(p.id);
-      const mins = isStarter ? 8 : 4;
-      const decay = mins * 0.5 * (p.endurance || 1);
-      return { ...p, stamina: Math.max(0, p.stamina - decay) };
+      
+      // 1. Calculate decay
+      const decay = (isStarter ? 6 : 3) * (p.endurance || 1);
+      let newStamina = Math.max(0, p.stamina - decay);
+      
+      // 2. Auto-Substitution Logic (ONLY for CPU teams)
+      if (p.teamId !== userTeamId) {
+          const threshold = isPlayoffs ? 80 : 70;
+          
+          // Forced substitution if stamina < 60
+          if (newStamina < 60 && isStarter) {
+            lineup = lineup.filter(id => id !== p.id);
+            // Find best bench player (highest rating)
+            const benchPlayers = prev.filter(bp => bp.teamId === p.teamId && !lineup.includes(bp.id));
+            if (benchPlayers.length > 0) {
+                const bestBench = benchPlayers.sort((a,b) => b.rating - a.rating)[0];
+                lineup.push(bestBench.id);
+            }
+          }
+          // Strategic substitution if stamina < threshold
+          else if (newStamina < threshold && isStarter) {
+             // Try finding same position bench player
+             const samePosBench = prev.filter(bp => bp.teamId === p.teamId && !lineup.includes(bp.id) && bp.position === p.position);
+             if (samePosBench.length > 0) {
+                 lineup = lineup.filter(id => id !== p.id);
+                 lineup.push(samePosBench.sort((a,b) => b.rating - a.rating)[0].id);
+             }
+          }
+          
+          // Update team lineup
+          if (isHome) {
+            activePlayoffGame.home.lineup = lineup;
+          } else {
+            activePlayoffGame.away.lineup = lineup;
+          }
+      }
+      
+      return { ...p, stamina: newStamina };
     }));
 
     setIsQuarterSimulating(false);
@@ -627,6 +684,13 @@ export default function App() {
     if (underweightTeams.length > 0) {
       setNews("🚨 無法開賽：聯盟中有 " + underweightTeams.length + " 支球隊球員數不足 8 人 (" + underweightTeams.map(t => t.name).join(", ") + ")。");
       return;
+    }
+
+    // Check if ALL teams have at least 5 starters defined in lineup
+    const invalidLineupTeams = teams.filter(t => (t.lineup?.length || 0) < 5);
+    if (invalidLineupTeams.length > 0) {
+        setNews("🚨 無法開賽：以下球隊先發陣容未滿 5 人: " + invalidLineupTeams.map(t => t.name).join(", "));
+        return;
     }
 
     if (userStarters.length < 5) {
@@ -766,33 +830,68 @@ export default function App() {
             const teamRoster = newPlayers.filter(p => p.teamId === t.id);
             const teamAvg = teamRoster.reduce((sum, p) => sum + p.rating, 0) / (teamRoster.length || 1);
 
-            // AI Rotation: If starter tired, swap with fresh reserve
+            // AI Rotation: Optimized Swap with Position Balance (1C, 2F, 2G)
             let newLineup = [...(t.lineup || [])];
-            // Filter to make sure we only reference players currently on this team
             const teamRosterIds = new Set(teamRoster.map(p => p.id));
             newLineup = newLineup.filter(id => teamRosterIds.has(id));
 
+            const staminaThreshold = isPlayoffs ? 0.8 : 0.7; // 80% playoff, 70% reg
             const starters = teamRoster.filter(p => newLineup.includes(p.id));
             const reserves = teamRoster.filter(p => !newLineup.includes(p.id));
             
+            // 處理換人邏輯
             starters.forEach(star => {
-              if (star.stamina < 45) { // Threshold for swap
-                const freshReserve = reserves.sort((a,b) => b.stamina - a.stamina)[0];
-                if (freshReserve && freshReserve.stamina > 75) {
-                  // Swap
-                  newLineup = newLineup.map(id => id === star.id ? freshReserve.id : id);
-                }
+              let shouldSwap = false;
+              let bestReserve: Player | undefined;
+
+              // 體力 < 60%：緊急強制換人（不考慮位置）
+              if (star.stamina < 60) {
+                 shouldSwap = true;
+                 bestReserve = reserves.sort((a,b) => b.rating - a.rating)[0];
+              } 
+              // 體力 < 門檻：按位置換人
+              else if (star.stamina < (staminaThreshold * 100)) {
+                 const freshReserves = reserves.filter(r => r.position === star.position && r.stamina > 85);
+                 if (freshReserves.length > 0) {
+                    shouldSwap = true;
+                    bestReserve = freshReserves.sort((a,b) => b.rating - a.rating)[0];
+                 }
+              }
+
+              if (shouldSwap && bestReserve) {
+                 newLineup = newLineup.map(id => id === star.id ? bestReserve.id : id);
+                 // 重新整理現有板凳清單
+                 const resIdx = reserves.findIndex(r => r.id === bestReserve.id);
+                 if(resIdx > -1) reserves.splice(resIdx, 1);
+                 reserves.push(star);
               }
             });
 
-            // Ensure lineup is valid
-            if (newLineup.length < 5 && teamRoster.length >= 5) {
-                const missingCount = 5 - newLineup.length;
-                const poolForFill = teamRoster.filter(p => !newLineup.includes(p.id));
-                const fills = poolForFill.sort((a,b) => b.rating - a.rating).slice(0, missingCount).map(p => p.id);
-                newLineup = [...newLineup, ...fills];
-            }
-            updatedTeam.lineup = newLineup;
+            // Ensure lineup is valid: Optimization towards 1C, 2F, 2G
+            const optimizeLineup = (currentIds: string[]) => {
+               const rosterPlayers = teamRoster.filter(p => currentIds.includes(p.id));
+               let c = rosterPlayers.filter(p => p.position === 'C');
+               let f = rosterPlayers.filter(p => p.position === 'SF' || p.position === 'PF');
+               let g = rosterPlayers.filter(p => p.position === 'PG' || p.position === 'SG');
+
+               // 若位置不足，嘗試從板凳補強該位置
+               const fillVoid = (category: string[], targetCount: number, available: Player[]) => {
+                   if (category.length < targetCount && available.length > 0) {
+                      const needed = targetCount - category.length;
+                      const bestAvailable = available.sort((a,b) => b.rating - a.rating).slice(0, needed);
+                      return [...category, ...bestAvailable];
+                   }
+                   return category;
+               };
+
+               const targetC = fillVoid(c, 1, teamRoster.filter(p => p.position === 'C' && !currentIds.includes(p.id)));
+               const targetF = fillVoid(f, 2, teamRoster.filter(p => (p.position === 'SF' || p.position === 'PF') && !currentIds.includes(p.id)));
+               const targetG = fillVoid(g, 2, teamRoster.filter(p => (p.position === 'PG' || p.position === 'SG') && !currentIds.includes(p.id)));
+
+               return [...targetC, ...targetF, ...targetG].slice(0, 5).map(p => p.id);
+            };
+
+            updatedTeam.lineup = optimizeLineup(newLineup);
 
             // AI Recruitment: Occasional talent search for weak teams
             if (teamAvg < 88 && t.budget > 10000000 && Math.random() > 0.7) {
@@ -835,6 +934,15 @@ export default function App() {
     localStorage.removeItem("nba-gm-players");
     localStorage.removeItem("nba-gm-last-explore");
     localStorage.removeItem("nba-gm-explore-pool");
+    localStorage.removeItem("nba-gm-current-week");
+    // Clear playoff-related storage
+    localStorage.removeItem("nba-gm-is-playoffs");
+    localStorage.removeItem("nba-gm-po-bracket");
+    localStorage.removeItem("nba-gm-po-round");
+    localStorage.removeItem("nba-gm-po-active");
+    localStorage.removeItem("nba-gm-po-q");
+    localStorage.removeItem("nba-gm-po-scores");
+    localStorage.removeItem("nba-gm-po-status");
     window.location.reload();
   };
 
@@ -1154,6 +1262,7 @@ export default function App() {
               { id: "market", icon: ShoppingCart, label: "交易市場" },
               { id: "library", icon: BarChart3, label: "球員百科" },
               { id: "league", icon: Trophy, label: "聯盟排名" },
+              { id: "team_rosters", icon: Shield, label: "球隊陣容總覽" },
               { id: "stats", icon: Calendar, label: "歷史賽績" },
             ].map((item) => (
               <button
@@ -1508,7 +1617,14 @@ export default function App() {
                 ) : (
                   <button 
                     disabled={isQuarterSimulating}
-                    onClick={simulatePlayoffQuarter}
+                    onClick={() => {
+                        const homeLineupCount = activePlayoffGame.home.lineup?.length || 0;
+                        const awayLineupCount = activePlayoffGame.away.lineup?.length || 0;
+                        if (homeLineupCount < 5 || awayLineupCount < 5) {
+                            return alert("兩隊先發陣容皆須滿 5 人方可開賽");
+                        }
+                        simulatePlayoffQuarter();
+                    }}
                     className="flex-1 bg-blue-600 text-white py-8 rounded-[2rem] font-black text-2xl uppercase italic shadow-[0_20px_50px_-10px_rgba(37,99,235,0.5)] hover:bg-blue-700 disabled:bg-slate-200 transition-all flex items-center justify-center gap-4"
                   >
                     {isQuarterSimulating ? <RefreshCw className="animate-spin" /> : <Play fill="currentColor" />}
@@ -2224,6 +2340,7 @@ export default function App() {
                     key={p.id} 
                     player={p} 
                     isObtained={true}
+                    teamName={p.teamId === 'FA' ? '自由市場' : teams.find(t => t.id === p.teamId)?.name}
                   />
                 ))}
               </div>
@@ -2233,6 +2350,39 @@ export default function App() {
                   <p className="text-slate-400 font-bold italic">僅顯示前 650 名匹配球員...</p>
                 </div>
               )}
+            </div>
+          )}
+
+          {activeTab === "team_rosters" && (
+            <div className="space-y-12">
+              {teams.map((t) => (
+                <div key={t.id} className="bg-white p-8 rounded-3xl border-2 border-slate-100 shadow-sm">
+                  <div className="flex items-center justify-between gap-4 mb-8">
+                     <div className="flex items-center gap-4">
+                        <img src={t.logo} className="w-16 h-16" alt={t.name} />
+                        <h3 className="text-3xl font-black text-slate-900 italic uppercase">{t.name} ({t.abbreviation})</h3>
+                     </div>
+                     <div className="bg-slate-100 px-6 py-2 rounded-xl font-black italic text-slate-900">
+                        經費: $${(t.budget / 1000000).toFixed(1)}M
+                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                     {players.filter(p => p.teamId === t.id).map(p => {
+                       const isStarter = t.lineup?.includes(p.id);
+                       return (
+                         <div key={p.id} className="relative">
+                           <PlayerCard key={p.id} player={p} teamName={t.name} />
+                           {isStarter && (
+                             <div className="absolute top-2 right-2 bg-blue-600 text-white text-[9px] font-black px-2 py-0.5 rounded italic uppercase">
+                               先發
+                             </div>
+                           )}
+                         </div>
+                       )
+                     })}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
