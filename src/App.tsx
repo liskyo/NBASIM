@@ -320,31 +320,44 @@ export default function App() {
       });
       loadedPlayers = uniqueLoadedPlayers;
 
-      // Feature: Merge new players from INITIAL_PLAYERS that are not in the save
-      const currentIds = new Set(loadedPlayers.map(p => p.id));
+      // Feature: Merge new players & Re-sync avatarUrls/names from INITIAL_PLAYERS
+      const initialMap = new Map(INITIAL_PLAYERS.map(p => [p.id, p]));
+      
+      currentPlayers = loadedPlayers.map(p => {
+        const initial = initialMap.get(p.id);
+        if (initial) {
+          // 重新同步名稱與大頭照路徑，確保讀取到最新的 ID 映射結果
+          return { 
+            ...p, 
+            name: initial.name, 
+            avatarUrl: initial.avatarUrl
+          };
+        }
+        return p;
+      });
+
+      const currentIds = new Set(currentPlayers.map(p => p.id));
       const missingPlayers = INITIAL_PLAYERS.filter(p => !currentIds.has(p.id));
       if (missingPlayers.length > 0) {
-        currentPlayers = [...loadedPlayers, ...missingPlayers.map(p => ({ ...p, teamId: 'FA' }))];
-      } else {
-        currentPlayers = loadedPlayers;
+        currentPlayers = [...currentPlayers, ...missingPlayers.map(p => ({ ...p, teamId: 'FA' }))];
       }
       
-      // Validation & Self-Healing: Check if any team has < 8 players
+      // Validation & Self-Healing: Check if any team has < 10 players (Updated for 10-star era)
       let playersModified = missingPlayers.length > 0;
       let teamsModified = false;
 
       currentTeams.forEach(team => {
         const teamPlayers = currentPlayers.filter(p => p.teamId === team.id);
-        if (teamPlayers.length < 8) {
-          const needed = 8 - teamPlayers.length;
+        if (teamPlayers.length < 10) {
+          const needed = 10 - teamPlayers.length;
           // Find FAs to fill the gap
           const faPool = currentPlayers.filter(p => p.teamId === 'FA');
           const fillers = faPool.sort(() => 0.5 - Math.random()).slice(0, needed);
           
           fillers.forEach(p => {
-             const idx = currentPlayers.findIndex(cp => cp.id === p.id);
+             const idx = currentPlayers.findIndex(cp => cp.id === cp.id && cp.id === p.id);
              if (idx !== -1) {
-               const rating = 85 + Math.floor(Math.random() * 6);
+               const rating = 78 + Math.floor(Math.random() * 8); // 78-85 star rating
                currentPlayers[idx] = { ...currentPlayers[idx], teamId: team.id, rating, offense: rating + 1, defense: rating - 1 };
                playersModified = true;
              }
@@ -361,35 +374,16 @@ export default function App() {
       setPlayers(currentPlayers);
       setTeams(currentTeams);
     } else {
-      // New Game Initialiation
-      currentPlayers = INITIAL_PLAYERS.map(p => ({ ...p, teamId: 'FA' }));
-      
-      NBA_TEAMS.forEach(team => {
-        const pool = currentPlayers.filter(p => p.teamId === 'FA');
-        const candidates = pool.sort(() => 0.5 - Math.random()).slice(0, 8);
-        
-        candidates.forEach(p => {
-          const rating = 85 + Math.floor(Math.random() * 6); // 85-90 as requested
-          const idx = currentPlayers.findIndex(cp => cp.id === p.id);
-          if (idx !== -1) {
-             currentPlayers[idx] = {
-               ...currentPlayers[idx],
-               teamId: team.id,
-               rating: rating,
-               offense: rating + 1,
-               defense: rating - 1,
-               price: 500000 + (rating - 60) * 100000,
-             };
-          }
-        });
-      });
+      // New Game Initialization: Respect pre-defined team assignments from INITIAL_PLAYERS
+      currentPlayers = [...INITIAL_PLAYERS];
 
       setPlayers(currentPlayers);
 
       currentTeams = NBA_TEAMS.map((team) => {
-        const teamPlayerIds = currentPlayers.filter(
-          (p) => p.teamId === team.id,
-        ).map((p) => p.id);
+        const teamPlayerIds = currentPlayers
+          .filter((p) => p.teamId === team.id)
+          .map((p) => p.id);
+        
         return {
           ...team,
           roster: teamPlayerIds,
@@ -875,10 +869,10 @@ export default function App() {
                let g = rosterPlayers.filter(p => p.position === 'PG' || p.position === 'SG');
 
                // 若位置不足，嘗試從板凳補強該位置
-               const fillVoid = (category: string[], targetCount: number, available: Player[]) => {
+               const fillVoid = (category: Player[], targetCount: number, available: Player[]) => {
                    if (category.length < targetCount && available.length > 0) {
                       const needed = targetCount - category.length;
-                      const bestAvailable = available.sort((a,b) => b.rating - a.rating).slice(0, needed);
+                      const bestAvailable = [...available].sort((a,b) => b.rating - a.rating).slice(0, needed);
                       return [...category, ...bestAvailable];
                    }
                    return category;
