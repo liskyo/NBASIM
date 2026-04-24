@@ -38,6 +38,7 @@ export interface Player {
   equipment?: Equipment[];
   stamina: number; // 0-100
   endurance: number; // 0.5 - 1.5 multiplier for decay
+  trainingCount?: number; // 新增：修煉次數
   effectiveRating?: number; // Calculated rating based on stamina and equipment
 }
 

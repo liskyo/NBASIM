@@ -364,14 +364,15 @@ export const NBA_TEAMS: Team[] = [
 ];
 
 export const GET_RATING_COLOR = (ratingValue: number) => {
-  if (ratingValue >= 95) return "#FFD700";
-  if (ratingValue >= 85) return "#A855F7";
+  if (ratingValue >= 100) return "#38BDF8"; // Sky Blue / Diamond
+  if (ratingValue >= 95) return "#FFD700"; // Gold / MVP
   if (ratingValue >= 75) return "#3B82F6";
   if (ratingValue >= 65) return "#22C55E";
   return "#94A3B8";
 };
 
 export const GET_RATING_LABEL = (ratingValue: number) => {
+  if (ratingValue >= 100) return "超凡入聖/神級";
   if (ratingValue >= 95) return "史詩級/MVP";
   if (ratingValue >= 85) return "全明星";
   if (ratingValue >= 75) return "優質先發";
@@ -379,12 +380,21 @@ export const GET_RATING_LABEL = (ratingValue: number) => {
   return "邊緣球員";
 };
 
-export const CALCULATE_PLAYER_PRICE = (ratingValue: number) => {
-  if (ratingValue >= 95) return 40000000 + (ratingValue - 95) * 5000000;
-  if (ratingValue >= 85) return 20000000 + (ratingValue - 85) * 2000000;
-  if (ratingValue >= 75) return 10000000 + (ratingValue - 75) * 1000000;
-  if (ratingValue >= 65) return 4000000 + (ratingValue - 65) * 500000;
-  return 1000000 + (ratingValue - 50) * 200000;
+export const CALCULATE_PLAYER_PRICE = (ratingValue: number, isLegend: boolean = false) => {
+  let basePrice = 0;
+  if (ratingValue >= 95) {
+    basePrice = 40000000 + (ratingValue - 95) * 5000000;
+    let finalPrice = basePrice * 4; // MVP 4x
+    if (isLegend) finalPrice += 100000000; // Only true LEGEND gets +100M
+    return finalPrice;
+  }
+  
+  if (ratingValue >= 85) basePrice = 20000000 + (ratingValue - 85) * 2000000;
+  else if (ratingValue >= 75) basePrice = 10000000 + (ratingValue - 75) * 1000000;
+  else if (ratingValue >= 65) basePrice = 4000000 + (ratingValue - 65) * 500000;
+  else basePrice = 1000000 + (ratingValue - 50) * 200000;
+  
+  return basePrice * 2; // Normal 2x
 };
 
 export const WIN_BONUS = 5000000;
@@ -401,7 +411,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "JERSEY",
     name: "基礎訓練背心",
     level: "Basic",
-    price: 1000000,
+    price: 10000000,
     bonus: { offense: 0.5 },
     icon: "Shirt",
   },
@@ -410,7 +420,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "JERSEY",
     name: "標準排汗球衣",
     level: "Standard",
-    price: 3000000,
+    price: 30000000,
     bonus: { offense: 1.0 },
     icon: "Shirt",
   },
@@ -419,7 +429,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "JERSEY",
     name: "專業比賽球衣",
     level: "Pro",
-    price: 8000000,
+    price: 80000000,
     bonus: { offense: 1.5 },
     icon: "Shirt",
   },
@@ -428,7 +438,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "JERSEY",
     name: "精英加壓球衣",
     level: "Elite",
-    price: 15000000,
+    price: 150000000,
     bonus: { offense: 2.0 },
     icon: "Shirt",
   },
@@ -437,7 +447,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "JERSEY",
     name: "冠軍特仕球衣",
     level: "Master",
-    price: 30000000,
+    price: 300000000,
     bonus: { offense: 2.5 },
     icon: "Shirt",
   },
@@ -446,7 +456,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "JERSEY",
     name: "傳奇復刻球衣",
     level: "Legendary",
-    price: 60000000,
+    price: 600000000,
     bonus: { offense: 3.0 },
     icon: "Shirt",
   },
@@ -455,7 +465,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHORTS",
     name: "透氣網眼短褲",
     level: "Basic",
-    price: 1000000,
+    price: 10000000,
     bonus: { defense: 0.5 },
     icon: "Square",
   },
@@ -464,7 +474,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHORTS",
     name: "彈性運動短褲",
     level: "Standard",
-    price: 3000000,
+    price: 30000000,
     bonus: { defense: 1.0 },
     icon: "Square",
   },
@@ -473,7 +483,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHORTS",
     name: "專業競速短褲",
     level: "Pro",
-    price: 8000000,
+    price: 80000000,
     bonus: { defense: 1.5 },
     icon: "Square",
   },
@@ -482,7 +492,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHORTS",
     name: "精英防護短褲",
     level: "Elite",
-    price: 15000000,
+    price: 150000000,
     bonus: { defense: 2.0 },
     icon: "Square",
   },
@@ -491,7 +501,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHORTS",
     name: "全能大師短褲",
     level: "Master",
-    price: 30000000,
+    price: 300000000,
     bonus: { defense: 2.5 },
     icon: "Square",
   },
@@ -500,7 +510,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHORTS",
     name: "名人堂典藏短褲",
     level: "Legendary",
-    price: 60000000,
+    price: 600000000,
     bonus: { defense: 3.0 },
     icon: "Square",
   },
@@ -509,7 +519,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHOES",
     name: "入門籃球鞋",
     level: "Basic",
-    price: 2000000,
+    price: 20000000,
     bonus: { offense: 0.3, defense: 0.2 },
     icon: "Footprints",
   },
@@ -518,7 +528,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHOES",
     name: "校隊款戰靴",
     level: "Standard",
-    price: 5000000,
+    price: 50000000,
     bonus: { offense: 0.6, defense: 0.4 },
     icon: "Footprints",
   },
@@ -527,7 +537,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHOES",
     name: "職業選用戰靴",
     level: "Pro",
-    price: 12000000,
+    price: 120000000,
     bonus: { offense: 0.9, defense: 0.6 },
     icon: "Footprints",
   },
@@ -536,7 +546,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHOES",
     name: "簽名款精英鞋",
     level: "Elite",
-    price: 25000000,
+    price: 250000000,
     bonus: { offense: 1.2, defense: 0.8 },
     icon: "Footprints",
   },
@@ -545,7 +555,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHOES",
     name: "總決賽限量款",
     level: "Master",
-    price: 45000000,
+    price: 450000000,
     bonus: { offense: 1.5, defense: 1.0 },
     icon: "Footprints",
   },
@@ -554,7 +564,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "SHOES",
     name: "MVP 傳奇金靴",
     level: "Legendary",
-    price: 80000000,
+    price: 800000000,
     bonus: { offense: 1.8, defense: 1.2 },
     icon: "Footprints",
   },
@@ -563,7 +573,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "KNEE_PADS",
     name: "簡易護膝",
     level: "Basic",
-    price: 800000,
+    price: 8000000,
     bonus: { defense: 0.5 },
     icon: "Shield",
   },
@@ -572,7 +582,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "KNEE_PADS",
     name: "海綿防撞護膝",
     level: "Standard",
-    price: 2400000,
+    price: 24000000,
     bonus: { defense: 1.0 },
     icon: "Shield",
   },
@@ -581,7 +591,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "KNEE_PADS",
     name: "蜂巢減震護膝",
     level: "Pro",
-    price: 6500000,
+    price: 65000000,
     bonus: { defense: 1.5 },
     icon: "Shield",
   },
@@ -590,7 +600,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "KNEE_PADS",
     name: "碳纖維支撐護膝",
     level: "Elite",
-    price: 12000000,
+    price: 120000000,
     bonus: { defense: 2.0 },
     icon: "Shield",
   },
@@ -599,7 +609,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "KNEE_PADS",
     name: "航太太空材護膝",
     level: "Master",
-    price: 25000000,
+    price: 250000000,
     bonus: { defense: 2.5 },
     icon: "Shield",
   },
@@ -608,7 +618,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "KNEE_PADS",
     name: "絕對領域護膝",
     level: "Legendary",
-    price: 50000000,
+    price: 500000000,
     bonus: { defense: 3.0 },
     icon: "Shield",
   },
@@ -617,7 +627,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "WRISTBAND",
     name: "吸汗護腕",
     level: "Basic",
-    price: 500000,
+    price: 5000000,
     bonus: { offense: 0.5 },
     icon: "Watch",
   },
@@ -626,7 +636,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "WRISTBAND",
     name: "排和導流護腕",
     level: "Standard",
-    price: 1500000,
+    price: 15000000,
     bonus: { offense: 1.0 },
     icon: "Watch",
   },
@@ -635,7 +645,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "WRISTBAND",
     name: "加壓保護護腕",
     level: "Pro",
-    price: 4500000,
+    price: 45000000,
     bonus: { offense: 1.5 },
     icon: "Watch",
   },
@@ -644,7 +654,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "WRISTBAND",
     name: "感知纖維護腕",
     level: "Elite",
-    price: 10000000,
+    price: 100000000,
     bonus: { offense: 2.0 },
     icon: "Watch",
   },
@@ -653,7 +663,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "WRISTBAND",
     name: "精準投射護腕",
     level: "Master",
-    price: 20000000,
+    price: 200000000,
     bonus: { offense: 2.5 },
     icon: "Watch",
   },
@@ -662,7 +672,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "WRISTBAND",
     name: "全明星榮耀護腕",
     level: "Legendary",
-    price: 40000000,
+    price: 400000000,
     bonus: { offense: 3.0 },
     icon: "Watch",
   },
@@ -671,7 +681,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "HEADBAND",
     name: "基礎運動頭巾",
     level: "Basic",
-    price: 600000,
+    price: 6000000,
     bonus: { offense: 0.25, defense: 0.25 },
     icon: "Zap",
   },
@@ -680,7 +690,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "HEADBAND",
     name: "酷涼降溫頭巾",
     level: "Standard",
-    price: 1800000,
+    price: 18000000,
     bonus: { offense: 0.5, defense: 0.5 },
     icon: "Zap",
   },
@@ -689,7 +699,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "HEADBAND",
     name: "戰術分析頭巾",
     level: "Pro",
-    price: 5000000,
+    price: 50000000,
     bonus: { offense: 0.75, defense: 0.75 },
     icon: "Zap",
   },
@@ -698,7 +708,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "HEADBAND",
     name: "精英格紋頭巾",
     level: "Elite",
-    price: 11000000,
+    price: 110000000,
     bonus: { offense: 1.0, defense: 1.0 },
     icon: "Zap",
   },
@@ -707,7 +717,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "HEADBAND",
     name: "大師絲綢頭巾",
     level: "Master",
-    price: 22000000,
+    price: 220000000,
     bonus: { offense: 1.25, defense: 1.25 },
     icon: "Zap",
   },
@@ -716,7 +726,7 @@ export const EQUIPMENT_MARKET: Equipment[] = [
     type: "HEADBAND",
     name: "傳奇王朝頭巾",
     level: "Legendary",
-    price: 45000000,
+    price: 450000000,
     bonus: { offense: 1.5, defense: 1.5 },
     icon: "Zap",
   },
