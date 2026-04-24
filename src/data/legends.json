@@ -15,7 +15,7 @@
       "bpg": 0.8
     },
     "isLegend": true,
-    "avatarUrl": "public/image/legends/sky.jpg"
+    "avatarUrl": "/image/legends/sky.jpg"
   },
   {
     "id": "leg-mj-prime",
