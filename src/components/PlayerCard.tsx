@@ -90,16 +90,19 @@ export const PlayerCard: React.FC<PlayerCardProps> = ({ player, isDetailed = fal
   return (
     <motion.div
       whileHover={{ y: isObtained ? -5 : 0 }}
-      className={`border-2 rounded-3xl p-5 shadow-sm transition-all overflow-hidden relative ${player.isLegend ? 'bg-gradient-to-br from-red-50 to-white' : 'bg-white'}`}
+      className={`border-2 rounded-3xl p-5 shadow-sm transition-all overflow-hidden relative ${player.isLegend ? 'bg-gradient-to-br from-red-50 to-white' : player.rating >= 95 ? 'bg-gradient-to-br from-amber-50 to-white' : player.rating >= 90 ? 'bg-gradient-to-br from-purple-50 to-white' : 'bg-white'}`}
       style={{ 
-        borderColor: player.isLegend ? '#ef4444' : color + '33', 
-        borderTopColor: player.isLegend ? '#ef4444' : color, 
+        borderColor: player.isLegend ? '#ef4444' : player.rating >= 95 ? '#f59e0b' : player.rating >= 90 ? '#8b5cf6' : color + '33', 
+        borderTopColor: player.isLegend ? '#ef4444' : player.rating >= 95 ? '#f59e0b' : player.rating >= 90 ? '#8b5cf6' : color, 
         borderTopWidth: '8px',
-        boxShadow: player.isLegend ? '0 10px 25px -5px rgba(239, 68, 68, 0.3)' : undefined
+        boxShadow: player.isLegend ? '0 10px 25px -5px rgba(239, 68, 68, 0.3)' : 
+                  player.rating >= 95 ? '0 10px 25px -5px rgba(245, 158, 11, 0.3)' :
+                  player.rating >= 90 ? '0 10px 25px -5px rgba(139, 92, 246, 0.3)' : 
+                  undefined
       }}
     >
-      {/* Diamond Sparkle Effect for Legends */}
-      {player.isLegend && (
+      {/* Diamond Sparkle Effect for Legends and Epic (黃卡) */}
+      {(player.isLegend || player.rating >= 95) && (
         <>
           <div 
             className="absolute inset-0 pointer-events-none opacity-30" 

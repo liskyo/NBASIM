@@ -365,7 +365,9 @@ export const NBA_TEAMS: Team[] = [
 
 export const GET_RATING_COLOR = (ratingValue: number) => {
   if (ratingValue >= 100) return "#38BDF8"; // Sky Blue / Diamond
-  if (ratingValue >= 95) return "#FFD700"; // Gold / MVP
+  if (ratingValue >= 95) return "#F59E0B"; // Gold / Epic (黃色)
+  if (ratingValue >= 90) return "#8B5CF6"; // Purple / MVP
+  if (ratingValue >= 85) return "#3B82F6"; // Blue / Quality Starter
   if (ratingValue >= 75) return "#3B82F6";
   if (ratingValue >= 65) return "#22C55E";
   return "#94A3B8";
@@ -373,8 +375,9 @@ export const GET_RATING_COLOR = (ratingValue: number) => {
 
 export const GET_RATING_LABEL = (ratingValue: number) => {
   if (ratingValue >= 100) return "超凡入聖/神級";
-  if (ratingValue >= 95) return "史詩級/MVP";
-  if (ratingValue >= 85) return "全明星";
+  if (ratingValue >= 95) return "史詩級";
+  if (ratingValue >= 90) return "MVP";
+  if (ratingValue >= 85) return "優質先發";
   if (ratingValue >= 75) return "優質先發";
   if (ratingValue >= 65) return "輪替陣容";
   return "邊緣球員";

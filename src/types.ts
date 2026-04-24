@@ -56,6 +56,7 @@ export interface Team {
     wins: number;
     losses: number;
   };
+  isCustom?: boolean;
 }
 
 export interface GameResult {

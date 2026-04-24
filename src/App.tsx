@@ -141,6 +141,14 @@ export default function App() {
   const [isOffseason, setIsOffseason] = useState(() => {
     return localStorage.getItem("nba-gm-is-offseason") === "true";
   });
+  // 自創隊伍相關 State
+  const [showCustomTeamModal, setShowCustomTeamModal] = useState(false);
+  const [customTeamData, setCustomTeamData] = useState({
+    name: "",
+    city: "",
+    logo: "",
+  });
+  const [isTradePhase, setIsTradePhase] = useState(false); // 創隊後的補強階段
   const [offseasonUserRookie, setOffseasonUserRookie] = useState<Player | null>(() => {
     const saved = localStorage.getItem("nba-gm-offseason-rookie");
     return saved ? JSON.parse(saved) : null;
@@ -283,6 +291,24 @@ export default function App() {
     
     setPlayoffBracket(newBracket);
     
+    // 全局體力恢復 (季後賽模擬了一場比賽，其餘球員應恢復)
+    setPlayers(prev => prev.map(p => {
+      const isHome = p.teamId === match.home.id;
+      const isAway = p.teamId === match.away.id;
+      // 正在比賽的球隊，非先發(休息者)恢復 15，先發在 simulatePlayoffQuarter 已扣除
+      // 其他沒比賽的球隊球員 恢復 20
+      if (!isHome && !isAway) {
+        return { ...p, stamina: Math.min(100, p.stamina + 20) };
+      }
+      
+      const team = isHome ? match.home : match.away;
+      const isStarter = team.lineup?.includes(p.id);
+      if (!isStarter) {
+        return { ...p, stamina: Math.min(100, p.stamina + 15) };
+      }
+      return p;
+    }));
+    
     // Check if round is finished
     const finished = newBracket.every(m => m.winner);
     if (finished) {
@@ -302,7 +328,7 @@ export default function App() {
        if (playoffRound === 3) {
           setNews(`🏁 傳奇誕生！${match.winner.name} 奪得 2026 NBA 總冠軍！`);
           // Trigger season transition after finals
-          setTimeout(startOffseason, 2000); 
+          setTimeout(() => startOffseason(newElims), 2000); 
        } else {
           setNews(`第 ${playoffRound} 輪結束！準備進入下一階段...`);
        }
@@ -337,6 +363,7 @@ export default function App() {
     const newBracket = [...playoffBracket];
     let bracketUpdated = false;
     let allUpdatedStaminas = new Map<string, number>();
+    let participantIds = new Set<string>();
     let updatedTeamsMap = new Map<string, Team>();
 
     const applyAiRotation = (team: Team) => {
@@ -385,6 +412,10 @@ export default function App() {
       const homeRoster = currentPlayers.filter(p => p.teamId === mutableHome.id);
       const awayRoster = currentPlayers.filter(p => p.teamId === mutableAway.id);
 
+      // Track participants for recovery later
+      homeRoster.forEach(p => participantIds.add(p.id));
+      awayRoster.forEach(p => participantIds.add(p.id));
+
       // 3. Simulate Fast Game
       const result = simulateGame(mutableHome, homeRoster, mutableAway, awayRoster, true);
       
@@ -420,7 +451,7 @@ export default function App() {
 
            if (playoffRound === 3) {
               setNews(`🏁 傳奇誕生！${newBracket[0].winner.name} 奪得 2026 NBA 總冠軍！`);
-              setTimeout(startOffseason, 2000); 
+              setTimeout(() => startOffseason(newElims), 2000); 
            } else {
               setNews(`第 ${playoffRound} 輪結束！準備進入下一階段...`);
            }
@@ -432,7 +463,12 @@ export default function App() {
 
         setPlayers(prev => prev.map(p => {
            if (allUpdatedStaminas.has(p.id)) {
+              // Participating AI players: Final stamina = base + decay + recovery
               return { ...p, stamina: Math.min(100, Math.max(0, p.stamina + allUpdatedStaminas.get(p.id)!) + 20) };
+           }
+           if (!participantIds.has(p.id)) {
+              // Non-participating players (including user team if resting) recover
+              return { ...p, stamina: Math.min(100, p.stamina + 20) };
            }
            return p;
         }));
@@ -806,7 +842,7 @@ export default function App() {
     return filteredLibraryPlayers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredLibraryPlayers, libraryPage]);
 
-  const startOffseason = () => {
+  const startOffseason = (finalElims?: Record<string, number>) => {
     // 1. Prepare Regular Season Budgets
     let updatedTeams = [...teams];
     let updatedPlayers = [...players];
@@ -815,7 +851,7 @@ export default function App() {
     // Reverse standings to give Rank 30 the most money (index 29 gives 30 * 5M = 150M)
     updatedTeams = updatedTeams.map(t => {
        const rankIndex = regularSeasonStandings.indexOf(t.id); // 0 (1st) to 29 (30th)
-       const bonus = (rankIndex + 1) * 5000000;
+       const bonus = (rankIndex === -1 ? 31 : rankIndex + 1) * 5000000;
        return { ...t, budget: t.budget + bonus };
     });
 
@@ -865,7 +901,8 @@ export default function App() {
     });
 
     // 4. Prepare Legends Pool
-    const userPlayoffRank = playoffEliminations[userTeamId as string];
+    const elims = finalElims || playoffEliminations;
+    const userPlayoffRank = elims[userTeamId as string];
     let legendsToPick: Player[] = [];
     if (userPlayoffRank) {
        const legendsAmount = userPlayoffRank === 1 ? 8 : (userPlayoffRank === 2 ? 4 : 2);
@@ -1052,8 +1089,21 @@ export default function App() {
       const finalResults: GameResult[] = [];
       const shuffledTeamsForMatchup = [...teams].sort(() => 0.5 - Math.random());
       
+      // 31st Team logic: If odd, one team gets a 'Bye' (simulated as easy win or just skipped)
+      // For simplicity, we'll let the last team play a "Ghost Team" or just skip them.
+      // But for record consistency, let's just pair as many as possible. 
+      // If 31 teams, 15 games will happen. The 31st team gets a small rest bonus.
+      
       const allPlayerUpdates: { id: string, staminaChange: number }[] = [];
       const gamePairs: { home: Team; away: Team; result: GameResult }[] = [];
+
+      // Handle odd team count (e.g., 31 teams)
+      if (shuffledTeamsForMatchup.length % 2 !== 0) {
+        // The last team gets a "Rest Week" (Wins 10M but no game recorded)
+        const restTeam = shuffledTeamsForMatchup.pop()!;
+        setTeams(prev => prev.map(t => t.id === restTeam.id ? { ...t, budget: t.budget + 10000000 } : t));
+        // No result added to gamePairs
+      }
 
       // 1. Pre-calculate all final results
       for (let i = 0; i < shuffledTeamsForMatchup.length; i += 2) {
@@ -1303,6 +1353,7 @@ export default function App() {
     if (currentTime - lastExploreTime < EXPLORE_COOLDOWN_MS) return;
 
     // Pick 3 random free agent players (not in any team, and not Legend)
+    // 確保包含黃卡 (95+)，原本邏輯其實已經包含，只要不是 isLegend 即可
     const faPlayers = players.filter((p) => p.teamId === "FA" && !p.isLegend);
     const shuffled = [...faPlayers].sort(() => 0.5 - Math.random());
     const selected = shuffled.slice(0, 3).map((p) => p.id);
@@ -1408,6 +1459,46 @@ export default function App() {
     // Remove from pool
     setExplorePool((prev) => prev.filter((id) => id !== playerId));
     setNews(`交易成功！${player.name} 正式加盟 ${userTeam.name}！`);
+
+    // 如果在創隊補強階段，檢查是否補齊 10 人
+    if (isTradePhase) {
+      const teamPlayers = players.filter(p => p.teamId === userTeamId);
+      const currentRosterCount = teamPlayers.length + 1; // +1 because state hasn't updated yet in this render but we know it will
+      
+      // 創隊補強邏輯：如果預算不足且人數不足 10，自動補強 80-85 分球員
+      const remainingSlots = 10 - currentRosterCount;
+      const budgetAfterThis = userTeam.budget - player.price;
+      
+      if (budgetAfterThis < 10000000 && remainingSlots > 0) {
+        // 預算不足 (少於 10M)，自動補強
+        const faCandidates = players.filter(p => p.teamId === 'FA' && p.rating >= 80 && p.rating <= 85);
+        const shuffled = [...faCandidates].sort(() => 0.5 - Math.random());
+        const toAdd = shuffled.slice(0, remainingSlots);
+        
+        setPlayers(prev => prev.map(p => {
+          const found = toAdd.find(a => a.id === p.id);
+          if (found) return { ...p, teamId: userTeamId! };
+          return p;
+        }));
+        
+        setTeams(prev => prev.map(t => {
+          if (t.id === userTeamId) {
+            return {
+              ...t,
+              roster: [...t.roster, ...toAdd.map(a => a.id)],
+              budget: 0, // 耗盡預算
+            };
+          }
+          return t;
+        }));
+
+        setIsTradePhase(false);
+        setNews(`經費已耗盡！系統自動補強 ${toAdd.length} 名 80-85 分球員。${userTeam.name} 訓練營正式展開！`);
+      } else if (currentRosterCount >= 10) {
+        setIsTradePhase(false);
+        setNews(`隊伍編制完成！${userTeam.name} 已經準備好挑戰聯盟！`);
+      }
+    }
   };
 
   const releasePlayer = (playerId: string) => {
@@ -1529,7 +1620,7 @@ export default function App() {
              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-8">
                 <div className="bg-slate-700/50 p-6 rounded-2xl text-center border border-slate-600">
                    <h3 className="text-2xl font-bold text-white mb-2">例行賽結算獎金</h3>
-                   <p className="text-slate-300">您在例行賽名列第 <span className="text-blue-400 font-bold">{regularSeasonStandings.length - userRankIndex}</span> 名</p>
+                   <p className="text-slate-300">您在例行賽名列第 <span className="text-blue-400 font-bold">{userRankIndex === -1 ? 31 : userRankIndex + 1}</span> 名</p>
                    <p className="text-3xl font-black text-emerald-400 mt-4">+${userBonus.toLocaleString()}</p>
                 </div>
 
@@ -1682,6 +1773,20 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
+            {/* 新增自創隊伍按鈕 */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowCustomTeamModal(true)}
+              className="group relative p-6 bg-blue-600/20 hover:bg-blue-600/30 rounded-2xl border-2 border-dashed border-blue-500/50 transition-all text-center flex flex-col items-center justify-center gap-2"
+            >
+              <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center text-white shadow-lg">
+                <Plus size={32} />
+              </div>
+              <div className="text-white font-black italic uppercase tracking-tighter">創建自訂隊伍</div>
+              <div className="text-blue-400 text-xs font-bold">成為聯盟第 31 支球隊</div>
+            </motion.button>
+
             {NBA_TEAMS.map((team) => (
               <motion.button
                 whileHover={{ scale: 1.05 }}
@@ -1706,6 +1811,102 @@ export default function App() {
             ))}
           </div>
         </motion.div>
+
+        {/* 自創隊伍 Modal (放在這裡確保在選隊畫面也能顯示) */}
+        <AnimatePresence>
+          {showCustomTeamModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-md w-full shadow-2xl"
+              >
+                <h2 className="text-3xl font-black text-white italic uppercase mb-6 tracking-tighter">創建您的夢幻隊伍</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-black text-slate-500 uppercase mb-1">所在城市 / 區域</label>
+                    <input
+                      type="text"
+                      value={customTeamData.city}
+                      onChange={(e) => setCustomTeamData({ ...customTeamData, city: e.target.value })}
+                      placeholder="例如: 台北, 洛杉磯..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-500 uppercase mb-1">隊伍名稱</label>
+                    <input
+                      type="text"
+                      value={customTeamData.name}
+                      onChange={(e) => setCustomTeamData({ ...customTeamData, name: e.target.value })}
+                      placeholder="例如: 噴火龍, 戰神..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-black text-slate-500 uppercase mb-1">隊徽 URL (選填)</label>
+                    <input
+                      type="text"
+                      value={customTeamData.logo}
+                      onChange={(e) => setCustomTeamData({ ...customTeamData, logo: e.target.value })}
+                      placeholder="輸入圖片網址..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1 italic">若留空則使用預設隊徽</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 mt-8">
+                  <button
+                    onClick={() => setShowCustomTeamModal(false)}
+                    className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    disabled={!customTeamData.city || !customTeamData.name}
+                    onClick={() => {
+                      const newTeamId = `custom-${Date.now()}`;
+                      const newTeam: Team = {
+                        id: newTeamId,
+                        name: customTeamData.name,
+                        city: customTeamData.city,
+                        abbreviation: (customTeamData.name.length >= 3 ? customTeamData.name.substring(0, 3) : customTeamData.name.padEnd(3, 'X')).toUpperCase(),
+                        logo: customTeamData.logo || "/image/team/NewTeam.png",
+                        color: "#3B82F6",
+                        roster: [],
+                        lineup: [],
+                        budget: 1000000000, // 1000M
+                        stats: { wins: 0, losses: 0 },
+                        isCustom: true,
+                      };
+
+                      const skyPlayer = players.find(p => p.name.includes("sky 哥哥"));
+                      let updatedPlayers = [...players];
+                      if (skyPlayer) {
+                        updatedPlayers = updatedPlayers.map(p => p.id === skyPlayer.id ? { ...p, teamId: newTeamId } : p);
+                        newTeam.roster = [skyPlayer.id];
+                        newTeam.lineup = [skyPlayer.id];
+                      }
+
+                      setTeams([...teams, newTeam]);
+                      setPlayers(updatedPlayers);
+                      setUserTeamId(newTeamId);
+                      setShowCustomTeamModal(false);
+                      setIsTradePhase(true);
+                      setActiveTab("market");
+                      setNews("歡迎來到聯盟！您已獲得起始經費 1000M 及傳奇球員 Sky 哥哥。請至少補齊 10 名球員以開始賽季。");
+                    }}
+                    className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-black rounded-xl transition-colors"
+                  >
+                    創建隊伍
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -2110,15 +2311,30 @@ export default function App() {
                              </button>
                           )}
                         </div>
-                        <div className="grid grid-cols-5 gap-3">
+                        <div className="grid grid-cols-5 gap-4">
                           {players.filter(p => activePlayoffGame.home.lineup?.includes(p.id)).slice(0,5).map(p => (
                             <div key={p.id} className="relative group flex flex-col items-center">
-                              <div className="w-full aspect-square bg-white rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center gap-1 overflow-hidden relative shadow-sm hover:border-blue-200 transition-colors">
-                                <img src={p.avatar} loading="lazy" className="w-10 h-10 rounded-full" alt="p" />
-                                <div className="text-[10px] font-black text-slate-900">OVR {p.rating}</div>
-                                <div className={`absolute bottom-0 left-0 right-0 h-1.5 ${p.stamina > 70 ? 'bg-emerald-500' : p.stamina > 40 ? 'bg-orange-500' : 'bg-red-500'}`} style={{ width: `${p.stamina}%` }}></div>
+                              <div className="w-full aspect-[3/4] bg-slate-900 rounded-3xl border-2 border-slate-700 flex flex-col items-center justify-center gap-1 overflow-hidden relative shadow-2xl transition-all group-hover:border-blue-500">
+                                {/* 背景裝飾 */}
+                                <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-blue-600/20 to-transparent" />
+                                {p.avatarUrl ? (
+                                  <img src={p.avatarUrl} loading="lazy" className="w-full h-full object-cover z-0" alt={p.name} />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 font-black text-xl border-2 border-slate-700">
+                                    {p.name.split(' ').map(n => n[0]).join('')}
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
+                                <div className="absolute top-1 left-1 bg-blue-600 px-1.5 py-0.5 rounded text-[8px] font-black text-white">{p.position}</div>
+                                <div className="absolute top-1 right-1 bg-slate-800/80 backdrop-blur-md px-1 py-0.5 rounded text-[7px] font-black text-slate-300 border border-slate-700">🔋 {Math.round(p.stamina)}%</div>
+                                <div className="absolute bottom-1 left-0 right-0 px-1 text-center">
+                                  <div className="text-[9px] font-black text-white truncate leading-tight uppercase italic tracking-tighter shadow-sm">{p.name}</div>
+                                  <div className="text-[11px] font-black text-blue-400 italic tracking-tighter">OVR {p.rating}</div>
+                                </div>
+                                <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-800">
+                                  <div className={`h-full ${p.stamina > 70 ? 'bg-emerald-500' : p.stamina > 40 ? 'bg-orange-500' : 'bg-red-500'}`} style={{ width: `${p.stamina}%` }}></div>
+                                </div>
                               </div>
-                              <div className="mt-2 text-[9px] font-black text-slate-500 uppercase truncate w-full text-center px-1">{p.name.split(' ').pop()}</div>
                             </div>
                           ))}
                         </div>
@@ -2131,14 +2347,24 @@ export default function App() {
                             對手防守陣容
                           </h4>
                         </div>
-                         <div className="grid grid-cols-5 gap-3">
+                         <div className="grid grid-cols-5 gap-4">
                           {players.filter(p => activePlayoffGame.away.lineup?.includes(p.id)).slice(0,5).map(p => (
                             <div key={p.id} className="flex flex-col items-center">
-                              <div className="w-full aspect-square bg-slate-50/50 rounded-2xl border-2 border-slate-100 flex flex-col items-center justify-center gap-1 opacity-70 relative overflow-hidden shadow-sm">
-                                <img src={p.avatar} loading="lazy" className="w-10 h-10 rounded-full grayscale" alt="p" />
-                                <div className="text-[10px] font-black text-slate-400">OVR {p.rating}</div>
+                              <div className="w-full aspect-[3/4] bg-slate-200 rounded-3xl border-2 border-slate-300 flex flex-col items-center justify-center gap-1 opacity-70 relative overflow-hidden">
+                                {p.avatarUrl ? (
+                                  <img src={p.avatarUrl} loading="lazy" className="w-full h-full object-cover grayscale" alt={p.name} />
+                                ) : (
+                                  <div className="w-12 h-12 rounded-full bg-slate-300 flex items-center justify-center text-slate-500 font-bold text-xs grayscale">
+                                    {p.name.split(' ').map(n => n[0]).join('')}
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-slate-200/80 via-transparent to-transparent" />
+                                <div className="absolute top-2 left-2 bg-slate-200 px-1.5 py-0.5 rounded text-[8px] font-black text-slate-500">{p.position}</div>
+                                <div className="absolute bottom-2 left-0 right-0 px-1 text-center">
+                                  <div className="text-[9px] font-black text-slate-500 truncate leading-tight uppercase italic tracking-tighter">{p.name}</div>
+                                  <div className="text-[11px] font-black text-slate-600 italic tracking-tighter text-center">OVR {p.rating}</div>
+                                </div>
                               </div>
-                              <div className="mt-2 text-[9px] font-black text-slate-400 uppercase truncate w-full text-center px-1">{p.name.split(' ').pop()}</div>
                             </div>
                           ))}
                         </div>
